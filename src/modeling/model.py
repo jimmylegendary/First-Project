@@ -71,6 +71,7 @@ from lifelines import CoxPHFitter as CPH
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--target', type=str, required=True, choices=['vital','any_cvd'])
     parser.add_argument('--out_path', default='E:\\temp\\15_ahi\\final'
                         , type=str)
     parser.add_argument('--save_path', default='E:\\temp\\15_ahi\\final'
@@ -83,6 +84,13 @@ def get_args():
 class tree(object):
     def __init__(self, args):
         self.args = args
+        self.target_func = {
+            'vital': self.select_mortality_ahi_subject,
+            'any_cvd': self.select_cvd_ahi_subject
+        }
+    
+    def extract_features(self, target, total_feature):
+        return self.target_func[target](total_feature)
 ## save result
 
     def performance_result(self, target, group):
@@ -160,6 +168,16 @@ class tree(object):
         writer.save()
 
     def model_cv_result(self, model, param, group, target):
+        """
+        This is an example of Google style.
+
+        Args:
+            param1: This is the first param.
+            param2: This is a second param.
+
+        Returns:
+            This is a description of what is returned.
+        """
         args = self.args
         ## drop feature
         drop_list = ['Unnamed: 0','name','vital','sleep_quality','any_cvd','pre_cvd','sleep_apnea','pre_sleep_apnea','cvd_death','censdate','cvd_dthdt','cvd_vital','cvd_date']
@@ -1258,7 +1276,6 @@ class tree(object):
 
         return alive, deceased
 
-
     def select_mortality_ahi_subject(self, data):
         
         ## including eds 
@@ -1281,7 +1298,6 @@ class tree(object):
         print('alive:', len(alive), '\n deceased:', len(deceased))
 
         return alive, deceased
-
 
     def select_cvd_subject(self, df_temp):
        
@@ -1341,7 +1357,6 @@ class tree(object):
         print('any_cvd:', len(any_cvd), '\n non_cvd:', len(non_cvd))
         return non_cvd, any_cvd
 
-
     def select_cvd_vital_subject(self, df):
 
         quality_index = [id for id, value in df.iterrows() if value['pre_cvd']==0]
@@ -1365,50 +1380,18 @@ class tree(object):
 if __name__ == '__main__':
 
 
-    arguments = get_args()
-    path = arguments.feature_path
+    args = get_args()
+    path = args.feature_path
     total_feature = pd.read_excel(path)
-    tree_shhs= tree(arguments)
+    tree_shhs= tree(args)
     
-    ## classification -mortality subject (group1: good (1) / group2: bad (0))
-    alive, deceased = tree_shhs.select_mortality_ahi_subject(total_feature)
+    # classification -mortality subject (group1: good (1) / group2: bad (0))
+    alive, deceased = tree_shhs.extract_feautres(args.target, total_feature)
     vital_group = pd.concat([alive, deceased])
-    #tree_shhs.performance_result('vital', vital_group)
-    #tree_shhs.save_concat_cv_result('vital', vital_group)
-    tree_shhs.save_best_result('vital', vital_group)
-    #tree_shhs.km_plot('vital',vital_group)
-    #tree_shhs.cox_func('vital',vital_group)
-    
-    ## classification -mortality subject (group1: good (1) / group2: bad (0))
-    #alive, deceased = tree_shhs.select_cvd_ahi_subject(total_feature)
-    #vital_group = pd.concat([alive, deceased])
-    #tree_shhs.performance_result('any_cvd', vital_group)
-    #tree_shhs.save_concat_cv_result('any_cvd', vital_group)
-    #tree_shhs.save_best_result('any_cvd', vital_group)
-    #tree_shhs.km_plot('any_cvd',vital_group)
-    #tree_shhs.cox_func('any_cvd',vital_group)
 
-    ## classification -mortality subject (group1: good (1) / group2: bad (0))
-    #alive, deceased = tree_shhs.select_mortality_ahi_subject(total_feature)
-    #vital_group = pd.concat([alive, deceased])
-    #tree_shhs.performance_result('vital', vital_group)
-    #tree_shhs.save_final_cv_result('vital', vital_group)
-    #tree_shhs.km_plot('vital',vital_group)
-
-
-    ## cvd subject
-    #non_cvd, cvd = tree_shhs.select_cvd_subject(total_feature)
-    #cvd_group = pd.concat([non_cvd, cvd])
-    #tree_shhs.performance_result('any_cvd', cvd_group)
-    #tree_shhs.save_final_result('any_cvd', cvd_group)
-    #tree_shhs.km_plot('any_cvd', cvd_group)
-    
-    '''    
-    ## cvd & vital subject
-    non_cvd, cvd = tree_shhs.select_cvd_vital_subject(total_feature)
-    cvd_group = pd.concat([non_cvd, cvd])
-    tree_shhs.performance_result('cvd_vital', cvd_group)
-    #tree_shhs.save_final_result('cvd_vital', cvd_group)
-    ##tree_shhs.km_plot('any_cvd', cvd_group)
-    '''
+    tree_shhs.performance_result(args.target, vital_group)
+    tree_shhs.save_concat_cv_result(args.target, vital_group)
+    tree_shhs.save_best_result(args.target, vital_group)
+    tree_shhs.km_plot(args.target,vital_group)
+    tree_shhs.cox_func(args.target,vital_group)
     
