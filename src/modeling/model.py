@@ -89,15 +89,53 @@ class tree(object):
             'any_cvd': self.select_cvd_ahi_subject
         }
     
-    def extract_features(self, target, total_feature):
-        return self.target_func[target](total_feature)
-## save result
 
-    def performance_result(self, target, group):
+    def grouping_features(self, outcome, total_data):
+        
+        """
+        Target outcome에 따라 grouping된 feature 값을 반환하는 함수
+
+        Args:
+            outcome: 'vital' or 'any_cvd' (Str)
+            total_data: 전체 feature data (DataFrame) 
+
+        Returns:
+            target_func[outcome](total_data): target_func[outcome](total_data) 결과
+
+        """
+
+        return self.target_func[outcome](total_data)
+
+
+    def save_performance_result(self, outcome, grouping_data):
+        
+        """
+        Target outcome에 따라 classifier별 분류 성능을 excel로 저장하는 함수
+
+        classifier 종류:
+        1) xgboost
+        2) lgbm
+        3) catboost
+        4) randomforest
+        5) logistic regression
+        
+        excel 저장 결과
+        1) classifier별 classification result
+        2) classifier별 feature importnace
+        3) classifier별 hyperparameter
+
+        Args:
+            outcome: 'vital' or 'any_cvd' (Str)
+            grouping_data: target outcome에  따라 grouping된 feature data (DataFrame) 
+
+        Returns:
+            classifier 별 classificaiton 관련 결과를 excel로 저장
+
+        """
+        
         args = self.args
        
-        ## tree parameter
-
+        ## gridsearch hyperparameter (classifier별로 gridsearch 할 hyperparmeter list)
         xgb_param = {
             'xgbclassifier__max_depth': [2,3,4,5,6,7,8,9], 
             'xgbclassifier__n_estimators': [100,200,300,400,500],
@@ -140,67 +178,98 @@ class tree(object):
             'logisticregression__random_state':[22]
             }
 
-        ## tree result
-        xgb_result, xgb_feature, xgb_best_param = self.model_cv_result(xgb, xgb_param, group, target)
-        catb_result, catb_feature, catb_best_param = tree_shhs.model_cv_result(catb, catb_param, group, target)
-        lgb_result, lgb_feature, lgb_best_param = tree_shhs.model_cv_result(lgb, lgb_param, group, target)
-        rf_result, rf_feature, rf_best_param = tree_shhs.model_cv_result(rf, rf_param, group, target)
-        lr_result, lr_feature, lr_best_param = tree_shhs.model_cv_result(lr, lr_param, group, target)
+        ## classifier result (classifier 별로 clasification result, feautre importnace, hyperparmeter 저장)
+        xgb_result, xgb_feature, xgb_best_param = self.perform_importance_hyperparam(xgb, xgb_param, grouping_data, outcome)
+        catb_result, catb_feature, catb_best_param = tree_shhs.perform_importance_hyperparam(catb, catb_param, grouping_data, outcome)
+        lgb_result, lgb_feature, lgb_best_param = tree_shhs.perform_importance_hyperparam(lgb, lgb_param, grouping_data, outcome)
+        rf_result, rf_feature, rf_best_param = tree_shhs.perform_importance_hyperparam(rf, rf_param, grouping_data, outcome)
+        lr_result, lr_feature, lr_best_param = tree_shhs.perform_importance_hyperparam(lr, lr_param, grouping_data, outcome)
 
-        ## result, feature, feature importance
+        ## concat result, feature, feature importance of classifier (classifier 별 classification result 값을 모두 합침)
         xgb_result.update(lgb_result)
         xgb_result.update(catb_result)
         xgb_result.update(rf_result)
         xgb_result.update(lr_result)
 
+        ## dict to DataFrame (excel저장을 위해 dataframe으로 변경)
         tree_result = pd.DataFrame(xgb_result)
         tree_feature = pd.concat([xgb_feature, lgb_feature, catb_feature, rf_feature, lr_feature], axis=1)
         tree_param = pd.DataFrame([xgb_best_param, lgb_best_param, catb_best_param, rf_best_param, lr_best_param])
 
-        ## result save
-        writer = pd.ExcelWriter(args.out_path + '\\{}_result_demo.xlsx'.format(target))      
+        ## result save (classifcation result, feautre importnace, hyperparmeter를 excel로 저장)
+        writer = pd.ExcelWriter(args.out_path + '\\{}_result_demo.xlsx'.format(outcome))      
         
-        tree_result.to_excel(writer, sheet_name = '{}_result'.format(target))
-        tree_feature.to_excel(writer, sheet_name = '{}_feature'.format(target))
-        tree_param.to_excel(writer, sheet_name = '{}_param'.format(target))
-
+        tree_result.to_excel(writer, sheet_name = '{}_result'.format(outcome))
+        tree_feature.to_excel(writer, sheet_name = '{}_feature'.format(outcome))
+        tree_param.to_excel(writer, sheet_name = '{}_param'.format(outcome))
 
         writer.save()
 
-    def model_cv_result(self, model, param, group, target):
+
+    def perform_importance_hyperparam(self, classifier, hyperparameter_list, grouping_data, outcome):
+
         """
-        This is an example of Google style.
+        outcome에 따라 grouping된 data에서 performance result, feature importance, hyperparameter 결과를 return하는 함수 (+roc curve plotting)
 
         Args:
-            param1: This is the first param.
-            param2: This is a second param.
+            classifier: xgb or catb or lgb or rf or lr (Class)
+            param: classifier별 grid search에 넣을 hyperparmeter 값들 (dict)
+            grouping_data: target outcome에  따라 grouping된 feature data (DataFrame) 
+            outcome: 'vital' or 'any_cvd' (Str)
 
         Returns:
-            This is a description of what is returned.
+            performance_result: fold별 성능값 (dict)
+            feature_important_list:  feature 이름/ feature importance / feature의 종류에 따라 저장한 값 (DataFrame)
+            hyperparmeter: hyperparmeter 결과 (list)
+
         """
+
         args = self.args
-        ## drop feature
+
+        ## drop feature : input feature로 사용되지 않을 column명 list
         drop_list = ['Unnamed: 0','name','vital','sleep_quality','any_cvd','pre_cvd','sleep_apnea','pre_sleep_apnea','cvd_death','censdate','cvd_dthdt','cvd_vital','cvd_date']
 
-        # for only hrv features       
-        index = group.drop(drop_list, axis=1).columns
-        x = group.drop(drop_list, axis=1).to_numpy()
-        y = group['{}'.format(target)].to_numpy()
 
-        pred_list, real_list, prob_list, feature_importance, param_list = self.prediction_cv_pipeline(x, y, model, target, param, index)
+        ## split data by features and label(outcome) : grouping된 data에서 feature_name(column명), x(feature 값), y(labeled outcome)으로 분리
+        feature_name = grouping_data.drop(drop_list, axis=1).columns
+        x = grouping_data.drop(drop_list, axis=1).to_numpy()
+        y = grouping_data['{}'.format(outcome)].to_numpy()
+
+
+        ## predicted feature, real feature, probabilities, feature importance, best parameter result
+        pred_list, real_list, prob_list, feature_importance, hyperparameter = self.fold_prediction_importance_hyperparam(x, y, classifier, outcome, hyperparameter_list, feature_name)
+
+
+        ## save performance result with cross-validation : cross-validation 결과 저장        
+        classifier_name = classifier.__name__
+        best_fold, mean_accuracy, mean_se, mean_sp, mean_ppv, mean_npv, mean_auc, performance_result = self.fold_perform(real_list, pred_list, prob_list, classifier_name, outcome)
+        print('{}_mean_accuracy:'.format(classifier_name), mean_accuracy, ', {}_mean_auc:'.format(classifier_name), mean_auc)
         
-        model = model.__name__
-        best_fold, mean_accuracy, mean_se, mean_sp, mean_ppv, mean_npv, mean_auc, result   = self.cv_accuracy(real_list, pred_list, prob_list,model, target)
-        print('{}_mean_accuracy:'.format(model), mean_accuracy, ', {}_mean_auc:'.format(model), mean_auc)
         
-        feature_mean = self.feature_mean_(feature_importance)
-        feature_importance_list = self.plot_feature_importance(feature_mean, index, model)
-        plt.savefig(args.out_path+'//{}_{}_feature_importance.eps'.format(target, model))
+        ## averaging feature importance from fold : fold별 획득된 feature importance값의 평균값을 구하기
+        mean_list = []
+        kv = len(feature_importance) # number of cv
+        for k in range(0,kv):
+            mean_list.append(np.array(feature_importance[k]))
+        feature_mean = np.sum(feature_importance, axis=0)/kv
+
+
+        ## plot & save bar graph of feature importance : fold의 평균 feature importance 값 plotting
+        feature_importance_list = self.plot_feature_importance(feature_mean, feature_name, classifier_name)        
+        plt.savefig(args.out_path+'//{}_{}_feature_importance.eps'.format(outcome, classifier_name))
         plt.close()     
 
 
-        clf_temp = self.final_result(model, target, best_fold)
-        # best model evaluation : 
+        ## load and save best model: 성능 가장 좋았던 fold 확인해서 classifier 불러오기 & best_model_ 로 따로 저장해주기
+        with open(args.out_path+'\\{}_{}_{}.pkl'.format(classifier_name, outcome, str(best_fold)), 'rb') as f:
+            grid_search_clf = pickle.load(f)
+        clf = grid_search_clf
+
+        with open(args.out_path+'\\{}_{}_best_model_fold{}.pkl'.format(classifier_name, outcome, str(best_fold)), 'wb') as f: 
+            pickle.dump(clf, f)
+
+
+        ## best model evaluation: 성능 가장 좋았던 classifier 성능 다시 확인  
         test_index_list=[]
         cv = StratifiedKFold(5, shuffle=True, random_state=250)
         for train_index, test_index in cv.split(x, y):
@@ -208,36 +277,53 @@ class tree(object):
         x_test = x[test_index_list[best_fold]]
         y_test = y[test_index_list[best_fold]]
 
-        clf = clf_temp.best_estimator_.steps[1][1]
-        best_param =clf_temp.best_params_
-        pred_prob = clf.predict_proba(x_test)
-        pred = pred_prob.argmax(1)
-        pred_prob = pred_prob[:, 1]
-        real = y_test.reshape(-1)
+        clf_temp = clf.best_estimator_.steps[1][1]
+        best_param =clf.best_params_
+        best_model_pred_prob = clf_temp.predict_proba(x_test)
+        best_model_pred = best_model_pred_prob.argmax(1)
+        best_model_pred_prob = best_model_pred_prob[:, 1]
+        best_model_real = y_test.reshape(-1)
         
+
         ## result & roc curve
-        mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result_final = self.accuracy_pipeline(real, pred, pred_prob, model, target)
-        print('{}_mean_accuracy:'.format(model), mean_accuracy, '{}_mean_auc:'.format(model), mean_auc)        
+        mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result_final = self.mean_perform(best_model_real, best_model_pred, best_model_pred_prob, classifier_name, outcome)
+        print('{}_mean_accuracy:'.format(classifier_name), mean_accuracy, '{}_mean_auc:'.format(classifier_name), mean_auc)    
+
+        return performance_result, feature_importance_list, hyperparameter
+    
 
 
-        return result, feature_importance_list, param_list
+    def save_concat_cv_result(self, outcome, grouping_data):
 
-    def save_concat_cv_result(self, target, group):
+        """
+        Target outcome에 따라 classifier별 분류 성능을 excel로 저장하는 함수 (fold 별 예측 결과를 하나의 세트로 간주하여 계산)
+
+        Args:
+            outcome: 'vital' or 'any_cvd' (Str)
+            grouping_data: target outcome에  따라 grouping된 feature data (DataFrame) 
+
+        Returns: 
+            classifier 별 classificaiton 관련 결과를 excel로 저장
+
+        """
+
         args = self.args
-        ## drop feature
+
+        ## drop feature : input feature로 사용되지 않을 column명 list
         drop_list = ['Unnamed: 0','name','vital','sleep_quality','any_cvd','pre_cvd','sleep_apnea','pre_sleep_apnea','cvd_death','censdate','cvd_dthdt','cvd_vital','cvd_date']
         cv_trainset = []
-        # for only hrv features       
-        index = group.drop(drop_list, axis=1).columns
-        x = group.drop(drop_list, axis=1).to_numpy()
-        y = group['{}'.format(target)].to_numpy()
+
+        ## split data by features and label(outcome) : grouping된 data에서 feature_name(column명), x(feature 값), y(labeled outcome)으로 분리
+        feature_name = grouping_data.drop(drop_list, axis=1).columns
+        x = grouping_data.drop(drop_list, axis=1).to_numpy()
+        y = grouping_data['{}'.format(outcome)].to_numpy()
 
         ## tree result        
-        xgb_fold_result, xgb_concat_result, real_set, xgb_prob_set  = self.concat_prediction_cv_pipeline(x, y, xgb, target, index)
-        catb_fold_result, catb_concat_result, real_set, catb_prob_set  = self.concat_prediction_cv_pipeline(x, y, catb, target, index)
-        lgb_fold_result, lgb_concat_result, real_set, lgb_prob_set  = self.concat_prediction_cv_pipeline(x, y, lgb, target, index)
-        rf_fold_result, rf_concat_result, real_set, rf_prob_set  = self.concat_prediction_cv_pipeline(x, y, rf, target, index)
-        lr_fold_result, lr_concat_result, real_set, lr_prob_set  = self.concat_prediction_cv_pipeline(x, y, lr, target, index)
+        xgb_concat_result, real_set, xgb_prob_set  = self.concat_prediction_cv_pipeline(x, y, xgb, outcome, feature_name)
+        catb_concat_result, real_set, catb_prob_set  = self.concat_prediction_cv_pipeline(x, y, catb, outcome, feature_name)
+        lgb_concat_result, real_set, lgb_prob_set  = self.concat_prediction_cv_pipeline(x, y, lgb, outcome, feature_name)
+        rf_concat_result, real_set, rf_prob_set  = self.concat_prediction_cv_pipeline(x, y, rf, outcome, feature_name)
+        lr_concat_result, real_set, lr_prob_set  = self.concat_prediction_cv_pipeline(x, y, lr, outcome, feature_name)
 
         ## save plot together
         xgb_concat_result.update(catb_concat_result)
@@ -245,7 +331,7 @@ class tree(object):
         xgb_concat_result.update(rf_concat_result)
         xgb_concat_result.update(lr_concat_result)
 
-        ## delong test
+        ## print delong test 
         xgb_catb_pvalue = self.delong_roc_test(real_set, xgb_prob_set, catb_prob_set, sample_weight=None)
         xgb_lgbm_pvalue = self.delong_roc_test(real_set, xgb_prob_set, lgb_prob_set, sample_weight=None)
         catb_lgbm_pvalue = self.delong_roc_test(real_set, lgb_prob_set, catb_prob_set, sample_weight=None)
@@ -263,32 +349,40 @@ class tree(object):
 
         
         plt.legend()
-        plt.savefig(args.save_path+'\\{}_roc_curve_concat.eps'.format(target), format='eps')        
+        plt.savefig(args.save_path+'\\{}_roc_curve_concat.eps'.format(outcome), format='eps')        
         plt.clf()
 
         ## result save
-        writer = pd.ExcelWriter(args.out_path + '\\{}_concat_result.xlsx'.format(target)) 
+        writer = pd.ExcelWriter(args.out_path + '\\{}_concat_result.xlsx'.format(outcome)) 
         tree_result = pd.DataFrame(xgb_concat_result, index=[0])
 
-        tree_result.to_excel(writer, sheet_name = '{}_result'.format(target))
-
-        '''
-        ## save plot together
-        xgb_fold_result.update(catb_fold_result)
-        xgb_fold_result.update(lgb_fold_result)
-        xgb_fold_result.update(rf_fold_result)
-        xgb_fold_result.update(lr_fold_result)        
-        tree_result_fold = pd.DataFrame(xgb_fold_result)
-        tree_result_fold.to_excel(writer, sheet_name = '{}_fold_result'.format(target))
-        '''
+        tree_result.to_excel(writer, sheet_name = '{}_result'.format(outcome))
 
         writer.save()
 
+
+
     def save_best_result(self, target, group):
+    
+        """
+        저장된 best fold classifier를 불러와서 result값을 저장하는 함수
+
+        Args:
+            outcome: 'vital' or 'any_cvd' (Str)
+            grouping_data: target outcome에  따라 grouping된 feature data (DataFrame) 
+
+        Returns: 
+            classifier 별 classificaiton 관련 결과를 excel로 저장
+
+        """
+        
         args = self.args
-         ## drop feature
+
+        ## drop feature
         drop_list = ['Unnamed: 0','name','vital','sleep_quality','any_cvd','pre_cvd','sleep_apnea','pre_sleep_apnea','cvd_death','censdate','cvd_dthdt','cvd_vital','cvd_date']
         cv_trainset = []
+
+
         # for only hrv features       
         index = group.drop(drop_list, axis=1).columns
         x = group.drop(drop_list, axis=1).to_numpy()
@@ -300,7 +394,7 @@ class tree(object):
         for train_index, test_index in cv.split(x, y):
             test_index_list.append(test_index)    
 
-        ## tree result
+        ## load best cross-validation result classifier (xgb, catb, lgb)
         xgb_clf, xgb_fold = self.load_best_cv(xgb, target)
         catb_clf, catb_fold = self.load_best_cv(catb, target)
         lgb_clf, lgb_fold = self.load_best_cv(lgb, target)
@@ -311,7 +405,7 @@ class tree(object):
         lgb_dataset = [x[test_index_list[lgb_fold]], y[test_index_list[lgb_fold]]]        
         dataset_list = [xgb_dataset, catb_dataset, lgb_dataset]
         
-        ## rf & lr          
+        ## load best cross-validation result classifier (rf, lr)
         rf_clf, rf_fold = self.load_best_cv(rf, target)
         lr_clf, lr_fold = self.load_best_cv(lr, target)
         rf_dataset = [x[test_index_list[rf_fold]], y[test_index_list[rf_fold]]] 
@@ -344,10 +438,22 @@ class tree(object):
         catb_dataset_df.to_excel(writer, sheet_name = '{}_catb_test_Data'.format(target))
         lgb_dataset_df.to_excel(writer, sheet_name = '{}_lgb_test_Data'.format(target))
         
-
         writer.save()   
     
-    def km_plot(self, target, group):
+
+    def km_plot(self, outcome, grouping_data):
+
+        """
+        kaplan-meier estimates by high and low risk figure plotting함 함수 
+        
+        Args:
+            outcome: target outcome (str)
+            grouping_data: target outcome에  따라 grouping된 feature data (DataFrame) 
+
+        Returns:
+
+        """   
+
         args = self.args
         
         ## km plot
@@ -356,8 +462,8 @@ class tree(object):
 
         ax = plt.subplot(111)
 
-        time = dataset['{}_date'.format(target)].to_numpy()
-        event = dataset['{}'.format(target)].to_numpy()
+        time = dataset['{}_date'.format(outcome)].to_numpy()
+        event = dataset['{}'.format(outcome)].to_numpy()
 
         ## Fit the data into the model
         km_high_risk = KM()
@@ -376,14 +482,27 @@ class tree(object):
         plt.title('Kaplan-Meier estimates by High and Low risk')
         plt.ylabel('Survival probability (%)')
         plt.xlabel('Time (Days)')
-        plt.savefig(args.save_path+'\\{}_km_plot_10.eps'.format(target), format='eps')
+        plt.savefig(args.save_path+'\\{}_km_plot_10.eps'.format(outcome), format='eps')
         plt.clf()
 
+
         
-    def cox_func(self, target, group):
+    def cox_func(self, outcome, grouping_data):
+
+        """
+        Cox Proportional Hazard model의 figure plotting함 함수 
+        
+        Args:
+            outcome: target outcome (str)
+            grouping_data: target outcome에  따라 grouping된 feature data (DataFrame) 
+
+        Returns:
+
+        """   
+
         args = self.args
         
-        ## km plot
+        ## cox plot
         dataset = pd.read_excel('D:\\Hyunji\\Research\\Thesis\\research\\sleep\\result\\SHHS_mortality_prediction_in_ahi_patient.xlsx',sheet_name='survival_10')   
         data = dataset[['vital_date','vital','age','hypertension','diabetes','risk_group']]
         
@@ -394,45 +513,74 @@ class tree(object):
         cph.plot()
 
         ## Create an estimate
-        plt.savefig(args.save_path+'\\{}_cox_HR_10_3.eps'.format(target), format='eps')
+        plt.savefig(args.save_path+'\\{}_cox_HR_10_3.eps'.format(outcome), format='eps')
         plt.clf()
 
 
+
 ## final result save
-    def prediction_cv_pipeline(self, x, label, classify, target, param, index):
+    def fold_prediction_importance_hyperparam(self, x, outcome_label, classifier, outcome, hyperparameter_list, feature_name):
+
+        """
+        feature(x)를 classifier에 학습시켜 fold별 정답(outcome label)를 예측한 결과, 실제 정답, 예측한 확률값, feature별 importance, gridsearch에 따른 hyperparamter list를 return하는 함수 
+        
+        학습 방법
+        1) stratified kfold cross-validation
+        2) smote를 통해 data augmentation = make_pipeline 함수 사용
+        3) gridsearch를 통해 hyperparameter 선정
+
+        Args:
+            x: features (ndarray)
+            outcome_label: labeled outcome (0 or 1) (ndarray)
+            classifier: classifier (Class)
+            outcome: target outcome (Str)
+            hyperparameter_list: hyperparmeter list (dict)
+            feature_name: feature column명 
+
+        Returns:
+            pred_list: fold별 predicted result =예측 결과 (ndarray)
+            real_list: fold별 실제 outcome label =정답 (ndarray)
+            prob_list: fold별 predicted probability =예측한 확률값 (ndarray)
+            feature_importance_list: fold별 feature importance 값 (list)
+            best_param_list : fold별 grid search 결과 선정된 hyperparameter (list)
+            
+        """
 
         args = self.args
 
+        # initialize output (return값 list로 initialize)
         pred_list, real_list, prob_list = [], [], []
         feature_importance_list = []
         best_param_list =[]
         
-        ## kfold prediction
+        ## kfold prediction (5 stratified fold cross-validation 수행 + smote를 통해 data augmentation = make_pipeline 함수 사용)
         from imblearn.pipeline import make_pipeline
         from sklearn.decomposition import PCA
         n_times=1
         cv = StratifiedKFold(5, shuffle=True, random_state=250)
         smote = SMOTE(random_state=37)
         #smp_pipeline = make_pipeline(smote, classify(**param))
-        smp_pipeline = make_pipeline(smote, classify())
-        kfold=0
+        smp_pipeline = make_pipeline(smote, classifier())
+        kfold=0 #fold initialize
 
+        
         for i in range(0, n_times):
             
-            #x_train_, x_test_, y_train_, y_test_ = train_test_split(x, label, test_size=0.2, stratify = label, random_state=387)
-            x_train_, y_train_ = x, label
+            #x_train_, x_test_, y_train_, y_test_ = train_test_split(x, outcome_label, test_size=0.2, stratify = outcome_label, random_state=387)
+            x_train_, y_train_ = x, outcome_label
 
+            # cross validation에 따라 train, test split
             for train_index, test_index in cv.split(x_train_, y_train_):
                 print("{} times {} fold:".format(str(i),str(kfold)))
                 x_train, x_test = x_train_[train_index], x_train_[test_index]
                 y_train, y_test = y_train_[train_index], y_train_[test_index]
                 
-                gird_search_clf = GridSearchCV(smp_pipeline, param, scoring='roc_auc', cv=cv, refit=True)
+                gird_search_clf = GridSearchCV(smp_pipeline, hyperparameter_list, scoring='roc_auc', cv=cv, refit=True)
                 gird_search_clf.fit(x_train, y_train)
 
                 ## grid search
-                # save grid searched model
-                with open(args.out_path+'\\{}_{}_{}.pkl'.format(str(classify.__name__), target, str(kfold)), 'wb') as f: 
+                # save grid searched model (pkl로 각 grid search별 best score 저장)
+                with open(args.out_path+'\\{}_{}_{}.pkl'.format(str(classifier.__name__), outcome, str(kfold)), 'wb') as f: 
                     pickle.dump(gird_search_clf, f)
 
                 print('GridSearch 최고 점수: ', gird_search_clf.best_score_)
@@ -441,26 +589,23 @@ class tree(object):
                 # load best estimator for gridsearched with training dataset
                 best_param_list.append(gird_search_clf.best_params_)
                 clf = gird_search_clf.best_estimator_.steps[1][1]
-                
-                ## without grid search
-                #clf = smp_pipeline.fit(x_train, y_train)
 
                 pred_prob = clf.predict_proba(x_test)
                 pred = pred_prob.argmax(1)
                 pred_prob = pred_prob[:, 1]
                 
                 ## save fold dataset
-                # save grid searched model
-                save_dataset = [pred, pred_prob, y_test.reshape(-1), pd.DataFrame(x_test, columns=index)]
-                with open(args.out_path+'\\{}_{}_{}_dataset.pkl'.format(str(classify.__name__), target, str(kfold)), 'wb') as f: 
+                # save grid searched model (prediction 결과, predicted probability, 실제 label 값(정답), feature(x 값))
+                save_dataset = [pred, pred_prob, y_test.reshape(-1), pd.DataFrame(x_test, columns=feature_name)]
+                with open(args.out_path+'\\{}_{}_{}_dataset.pkl'.format(str(classifier.__name__), outcome, str(kfold)), 'wb') as f: 
                     pickle.dump(save_dataset, f)
 
                 pred_list.append(pred)
                 real_list.append(y_test.reshape(-1))
                 prob_list.append(pred_prob)       
                 
-                ## feature importance
-                feature_importance= clf.feature_importances_ if classify.__name__ != 'LogisticRegression' else clf.coef_[0]
+                ## feature importance (logistic regression 제외 나머지 classifier의 feature importance 내장 함수 이용하여 feature importance 저장)
+                feature_importance= clf.feature_importances_ if classifier.__name__ != 'LogisticRegression' else clf.coef_[0]
                 feature_importance_list.append(feature_importance)
                 kfold+=1
         
@@ -469,10 +614,26 @@ class tree(object):
         prob_list = np.array(prob_list)
 
         return pred_list, real_list, prob_list, feature_importance_list, best_param_list 
+    
 
-    def load_best_cv(self, classify, target):
+
+    def load_best_cv(self, classifier, outcome):
+
+        """
+        저장된 best model pkl값을 읽어오는 함수 
+
+        Args:
+            classifier: classifier (Class)
+            outcome: target outcome; 'vital' or 'any_cvd' (Str)
+
+        Returns: 
+            clf: grid search classifier (Class)
+            best_fold: 성능이 가장 높은 fold 값 (int)
+
+        """
+
         args = self.args
-        clf_file = glob.glob(os.path.join(args.out_path,'{}_{}_best_model_fold*.pkl'.format(str(classify.__name__), target)))
+        clf_file = glob.glob(os.path.join(args.out_path,'{}_{}_best_model_fold*.pkl'.format(str(classifier.__name__), outcome)))
         best_fold = int(clf_file[0].split('.')[0][-1])
 
         # load best parameter
@@ -482,24 +643,47 @@ class tree(object):
         clf = grid_search_clf
 
         return clf, best_fold 
+    
             
-    def concat_prediction_cv_pipeline(self, x, label, classify, target, index):
+    def concat_prediction_cv_pipeline(self, x, outcome_label, classifier, outcome, feature_name):
+
+        """
+        feature(x)를 classifier에 학습시켜 fold별 정답(outcome label)를 예측한 결과, 실제 정답, 예측한 확률값을 return하는 함수 
+        
+        학습 방법
+        1) stratified kfold cross-validation
+        2) smote를 통해 data augmentation = make_pipeline 함수 사용
+        3) gridsearch를 통해 hyperparameter 선정
+
+        Args:
+            x: features (ndarray)
+            outcome_label: labeled outcome (0 or 1) (ndarray)
+            classifier: classifier (Class)
+            outcome: target outcome (Str)
+            hyperparameter_list: hyperparmeter list (dict)
+            feature_name: feature column명 
+
+        Returns:
+            concat_result: fold 별 예측 결과를 하나의 세트로 간주하여 계산한 성능 결과 (dict)
+            real_set: fold 별 실제 정답 값을 concatenate한 데이터 (ndarray)
+            prob_set: fold 별 실제 예측 probability 값을 concatenate한 데이터 (ndarray)
+            
+        """
 
         args = self.args
 
-        pred_list, real_list, prob_list, shap_list,test_index_list = [], [], [], [], []
+        pred_list, real_list, prob_list, shap_list, test_index_list = [], [], [], [], []
         feature_importance_list = []
         best_param_list =[]
         
         ## kfold prediction
-
         n_times=1
         cv = StratifiedKFold(5, shuffle=True, random_state=250)
         kfold=0
 
         for i in range(0, n_times):
             
-            x_train_, y_train_ = x, label
+            x_train_, y_train_ = x, outcome_label
 
             for train_index, test_index in cv.split(x_train_, y_train_):
                 print("{} times {} fold:".format(str(i),str(kfold)))
@@ -508,7 +692,7 @@ class tree(object):
  
                 ## grid search
                 # save grid searched model
-                with open(args.out_path+'\\{}_{}_{}.pkl'.format(str(classify.__name__), target, str(kfold)), 'rb') as f: 
+                with open(args.out_path+'\\{}_{}_{}.pkl'.format(str(classifier.__name__), outcome, str(kfold)), 'rb') as f: 
                     gird_search_clf = pickle.load(f)
 
                 print('GridSearch 최고 점수: ', gird_search_clf.best_score_)
@@ -526,28 +710,14 @@ class tree(object):
                 real_list.append(y_test.reshape(-1))
                 prob_list.append(pred_prob)       
                 test_index_list.append(test_index)
-                                
-                ## feature importance & shap value
-                #explainer = shap.TreeExplainer(clf)
-                #shap_values = explainer.shap_values(x_test) if classify.__name__ !='LGBMClassifier' else explainer.shap_values(x_test)[1]             
-                #shap_list.append(shap_values)
 
                 kfold+=1
-        
-        pred_list_temp = np.array(pred_list)
-        real_list_temp = np.array(real_list)
-        prob_list_temp = np.array(prob_list)
-        #best_fold, mean_accuracy, mean_se, mean_sp, mean_ppv, mean_npv, mean_auc, fold_result   = self.cv_accuracy(real_list_temp, pred_list_temp, prob_list_temp ,classify.__name__, target)
-        fold_result=[]
 
         #combining results from all iterations
         test_set = test_index_list[0]
         pred_set = pred_list[0]
         real_set = real_list[0]
-        prob_set = prob_list[0]
-        
-        #shap_values = np.array(shap_list[0])
-
+        prob_set = prob_list[0]        
 
         for i in range(1,len(test_index_list)):
             test_set = np.concatenate((test_set,test_index_list[i]),axis=0)
@@ -555,26 +725,39 @@ class tree(object):
             real_set = np.concatenate((real_set,real_list[i]),axis=0)
             prob_set = np.concatenate((prob_set,prob_list[i]),axis=0)
 
-            #shap_values = np.concatenate((shap_values,np.array(shap_list[i])),axis=0)
-        '''
-        #bringing back variable names    
-        X_test = pd.DataFrame(x[test_set],columns=index)
 
-        ## plotting shap plot
-        plt.figure(figsize=[15,8])
-        shap.summary_plot(shap_values, X_test, plot_size=None, max_display=20, show=False, plot_type='bar')
-        plt.savefig(args.out_path+'\\{}_{}_shap_value_barplot_all.eps'.format(target, str(classify.__name__)), format='eps')
+        # fold 별 예측 결과를 하나의 세트로 간주하여 성능을 계산
+        mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, concat_result = self.mean_perform(real_set, pred_set, prob_set, classifier.__name__, outcome) 
+        print('{}_total_accuracy:'.format(classifier.__name__), mean_accuracy, '{}_total_auc:'.format(classifier.__name__), mean_auc)
         
-        plt.figure(figsize=[15,8])
-        shap.summary_plot(shap_values, X_test, plot_size=None, max_display=20, show=False)
-        plt.savefig(args.out_path+'\\{}_{}_shap_value_summaryplot_all.eps'.format(target, str(classify.__name__)), format='eps')    
-        '''
-        mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, concat_result = self.accuracy_pipeline(real_set, pred_set, prob_set, classify.__name__, target) 
-        print('{}_total_accuracy:'.format(classify.__name__), mean_accuracy, '{}_total_auc:'.format(classify.__name__), mean_auc)
-        
-        return fold_result, concat_result, real_set, prob_set
+        return concat_result, real_set, prob_set
+
 
     def best_cv_plot(self, clf_list, dataset_list, cv_trainset, index, target):
+
+        """
+        classifier별 roc curve를 plotting하는 함수 
+        
+        학습 방법
+        1) stratified kfold cross-validation
+        2) smote를 통해 data augmentation = make_pipeline 함수 사용
+        3) gridsearch를 통해 hyperparameter 선정
+
+        Args:
+            x: features (ndarray)
+            outcome_label: labeled outcome (0 or 1) (ndarray)
+            classifier: classifier (Class)
+            outcome: target outcome (Str)
+            hyperparameter_list: hyperparmeter list (dict)
+            feature_name: feature column명 
+
+        Returns:
+            concat_result: fold 별 예측 결과를 하나의 세트로 간주하여 계산한 성능 결과 (dict)
+            real_set: fold 별 실제 정답 값을 concatenate한 데이터 (ndarray)
+            prob_set: fold 별 실제 예측 probability 값을 concatenate한 데이터 (ndarray)
+            
+        """
+
         args = self.args
         pred_list = []
 
@@ -598,7 +781,7 @@ class tree(object):
             param_list.append(best_param)
             
             ## result & roc curve
-            mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.accuracy_pipeline(real, pred, pred_prob, clf_name[i], target)
+            mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.mean_perform(real, pred, pred_prob, clf_name[i], target)
             all_result.append(result) 
             print('{}_mean_accuracy:'.format(clf_name[i]), mean_accuracy, '{}_mean_auc:'.format(clf_name[i]), mean_auc)
             
@@ -632,7 +815,32 @@ class tree(object):
 
 
 ## accuracy/ feature importance
-    def cv_accuracy(self, real, pred, prob, classify, target):
+    def fold_perform(self, real, pred, prob, classifier_name, outcome):
+    
+        """
+        cross-validation 결과 중 가장 성능이 좋은 fold, 평균 accuracy, sensitivity, specificity, ppv, npv, auc, fold별 각 성능값을 return하는 함수 
+        
+        best_fold, mean_accuracy, mean_se, mean_sp, mean_ppv, mean_npv, mean_auc, performance_result
+
+        Args:
+            real: fold별 실제 outcome label =정답 (ndarray)
+            pred: fold별 predicted result =예측 결과 (ndarray)
+            prob: fold별 predicted probability =예측한 확률값 (ndarray)
+            classifier_name: classifier 이름 (str)
+            outcome: target outcome (str)
+
+        Returns:
+            best_fold: 가장 성능이 좋은 fold (int)
+            mean_accuracy: 평균 accuracy (ndarray)
+            mean_se: 평균 sensitvity (ndarray)
+            mean_sp: 평균 specificity (ndarray)
+            mean_ppv: 평균 ppv (ndarray)
+            mean_npv: 평균 npv (ndarray)
+            mean_auc: 평균 auc (ndarray)
+            result: fold별 성능값 (dict)
+            
+        """    
+
         args = self.args
 
         cv_accuracy = []
@@ -649,7 +857,7 @@ class tree(object):
             f1 = f1_score(real[k], pred[k], pos_label=1)
             fpr, tpr, thresholds = metrics.roc_curve(real[k], prob[k], pos_label=1)
             auc = metrics.auc(fpr, tpr)
-            se, sp, se_ci, sp_ci, ppv, npv, ppv_ci, npv_ci,optimal_threshold = self.roc_curve_func(pred[k], real[k], prob[k],classify+': '+str(auc))
+            se, sp, se_ci, sp_ci, ppv, npv, ppv_ci, npv_ci,optimal_threshold = self.roc_curve_func(pred[k], real[k], prob[k],classifier_name+': '+str(auc))
 
 
             cv_accuracy.append(accuracy)
@@ -676,73 +884,121 @@ class tree(object):
         fold.append('mean')
         best_fold = cv_roc.index(max(cv_roc))
 
-        result = {'fold_{}'.format(classify): fold, 'accuracy_{}'.format(classify):cv_accuracy, 'roc_{}'.format(classify):cv_roc, 'se_{}'.format(classify):cv_se, 'sp_{}'.format(classify):cv_sp, 'ppv_{}'.format(classify):cv_ppv, 'npv_{}'.format(classify):cv_npv }
+        performance_result = {'fold_{}'.format(classifier_name): fold, 'accuracy_{}'.format(classifier_name):cv_accuracy, 'roc_{}'.format(classifier_name):cv_roc, 'se_{}'.format(classifier_name):cv_se, 'sp_{}'.format(classifier_name):cv_sp, 'ppv_{}'.format(classifier_name):cv_ppv, 'npv_{}'.format(classifier_name):cv_npv }
         plt.clf()
 
-        return best_fold, mean_accuracy, mean_se, mean_sp, mean_ppv, mean_npv, mean_auc, result  
+        return best_fold, mean_accuracy, mean_se, mean_sp, mean_ppv, mean_npv, mean_auc, performance_result  
 
-    def accuracy_pipeline(self, real, pred, prob, classify, target):
+
+    def mean_perform(self, real, pred, prob, classifier_name, outcome):
+
+        """
+        예측 결과의 accuracy, precision, recall, f1, auc 값과 각 통계값의 mean(confidence_interval) 저장값을 return하며 roc curve를 plotting함 함수 
+        
+        Args:
+            real: 실제 outcome label =정답 (ndarray)
+            pred: predicted result =예측 결과 (ndarray)
+            prob: predicted probability =예측한 확률값 (ndarray)
+            classifier_name: classifier 이름 (str)
+            outcome: target outcome (str)
+
+        Returns:
+            accuracy: accuracy (float)
+            precision:  precision (float)
+            recall:  recall (float)
+            f1: f1 (float)
+            acu_result[0]: auc (float)
+            result: precision, recall, f1, roc, sensitivity, specificity, ppv, npv, accuracy, thershold 값 (dict)
+            
+        """    
+
         args = self.args
 
         accuracy = accuracy_score(real, pred)
         precision = precision_score(real, pred, pos_label=1)
         recall = recall_score(real, pred, pos_label=1)
-        f1 = f1_score(real, pred, pos_label=1)
+        f1 = f1_score(real, pred, pos_label=1)        
         auc_result = self.auc_ci_Delong(real, prob)
+
+        ## mean(confidence interval) 형태로 저장
         auc = str(round(auc_result[0],3))+' ('+str(round(auc_result[-1][0],3))+', '+str(round(auc_result[-1][1],3))+')'
-        se, sp, se_ci, sp_ci, ppv, npv, ppv_ci, npv_ci, optimal_threshold= self.roc_curve_func(pred, real, prob, classify+': '+auc) #save path인지 output path인지 확인
+
+        ## roc curve를 plotting
+        se, sp, se_ci, sp_ci, ppv, npv, ppv_ci, npv_ci, optimal_threshold= self.roc_curve_func(pred, real, prob, classifier_name+': '+auc) #save path인지 output path인지 확인
         #se, sp, se_ci, sp_ci, ppv, npv, ppv_ci, npv_ci, optimal_threshold= self.roc_curve_func(pred, real, prob, args.out_path+'\\{}_{}_roc_curve_LR_RF.eps'.format(classify, target)) 
         sensitivity = str(round(se,3))+' ('+str(round(se_ci[0],3))+', '+str(round(se_ci[1],3))+')'
         specificity =str(round(sp,3))+' ('+str(round(sp_ci[0],3))+', '+str(round(sp_ci[1],3))+')'
         ppv =str(round(ppv,3))+' ('+str(round(ppv_ci[0],3))+', '+str(round(ppv_ci[1],3))+')'
         npv =str(round(npv,3))+' ('+str(round(npv_ci[0],3))+', '+str(round(npv_ci[1],3))+')'
-        result = {'precision_{}'.format(classify):precision, 'recall_{}'.format(classify):recall, 'f1_{}'.format(classify):f1,  'roc_{}'.format(classify):auc,'sensitivity_{}'.format(classify):sensitivity,'specificity_{}'.format(classify):specificity,'ppv_{}'.format(classify):ppv,'npv_{}'.format(classify):npv, 'accuracy_{}'.format(classify):accuracy,'threshold_{}'.format(classify):optimal_threshold}
+        result = {'precision_{}'.format(classifier_name):precision, 'recall_{}'.format(classifier_name):recall, 'f1_{}'.format(classifier_name):f1,  'roc_{}'.format(classifier_name):auc,'sensitivity_{}'.format(classifier_name):sensitivity,'specificity_{}'.format(classifier_name):specificity,'ppv_{}'.format(classifier_name):ppv,'npv_{}'.format(classifier_name):npv, 'accuracy_{}'.format(classifier_name):accuracy,'threshold_{}'.format(classifier_name):optimal_threshold}
 
         return accuracy, precision, recall, f1, auc_result[0], result
 
 
+    def plot_feature_importance(self, feature__importance, feature_name, classifier_name):
 
-    def feature_mean_(self, list):
-        mean_list = []
-        kv = len(list) # number of cv
-        for k in range(0,kv):
-            mean_list.append(np.array(list[k]))
-        feature_mean = np.sum(mean_list, axis=0)/kv
-        return feature_mean
+        """
+        feature importance 값을 feature의 종류(demographic, sleep feature, HRV)에 따라 
+        1) bar plotting하고
+        2) feature 이름/ feature importance / feature의 종류에 따라 DataFrame으로 return하는 함수
 
-    def plot_feature_importance(self, importance, names, model_type):
+        Args:
+            feature__importance: feature 별 classification 결과에 영향을 준 정도(importance) 값
+            feature_name: feature의 name (list)
+            classifier_name:  classifier의 이름 (Str)
+
+        Returns:
+            feature_importance_category:  feature 이름/ feature importance / feature의 종류에 따라 저장한 값 (DataFrame)
+        
+        """
 
         #Create arrays from feature importance and feature names
-        feature_importance = np.array(importance)
-        feature_names = np.array(names, dtype=object)
+        feature_importance = np.array(feature__importance)
+        feature_names = np.array(feature_name, dtype=object)
         feature_category= []
         for i in range(11): feature_category.append('Demographics') 
-        #for i in range(18): feature_category.append('Sleep features')
-        #for i in range(27): feature_category.append('HRV')  
+        for i in range(18): feature_category.append('Sleep features')
+        for i in range(27): feature_category.append('HRV')  
 
         #Create a DataFrame using a Dictionary
         data={'feature_names':feature_names,'feature_importance':feature_importance, 'feature_category':feature_category}
-        fi_df = pd.DataFrame(data)
+        feature_importance_category = pd.DataFrame(data)
 
         #Sort the DataFrame in order decreasing feature importance
-        #fi_top30 = fi_df.sort_values(by=['feature_importance'], ascending=False)[:30]
-        fi_top30 = fi_df.sort_values(by=['feature_importance'], ascending=False)[:10]
+        fi_top30 = feature_importance_category.sort_values(by=['feature_importance'], ascending=False)[:30]
 
         #Define size of bar plot
         plt.figure(figsize=(18,12))
         
         #Plot Searborn bar chart
-        #sns.barplot(x=fi_df['feature_importance'], y=fi_df['feature_names'])
+        #sns.barplot(x=feature_importance_category['feature_importance'], y=feature_importance_category['feature_names'])
         sns.barplot(x='feature_importance', y='feature_names', hue='feature_category', data=fi_top30)
 
         #Add chart labels
-        plt.title(model_type + ' FEATURE IMPORTANCE')
+        plt.title(classifier_name + ' FEATURE IMPORTANCE')
         plt.xlabel('FEATURE IMPORTANCE')
         plt.ylabel('FEATURE NAMES')
 
-        return fi_df
+        return feature_importance_category
+
 
     def final_result(self, classify, target, best_fold):
+        
+        """
+        feature importance 값을 feature의 종류(demographic, sleep feature, HRV)에 따라 
+        1) bar plotting하고
+        2) feature 이름/ feature importance / feature의 종류에 따라 DataFrame으로 return하는 함수
+
+        Args:
+            feature__importance: feature 별 classification 결과에 영향을 준 정도(importance) 값
+            feature_name: feature의 name (list)
+            classifier_name:  classifier의 이름 (Str)
+
+        Returns:
+            feature_importance_category:  feature 이름/ feature importance / feature의 종류에 따라 저장한 값 (DataFrame)
+        
+        """
+
         args = self.args
 
         # load best parameter
@@ -782,7 +1038,7 @@ class tree(object):
 
             
             ## result & roc curve
-            mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.accuracy_pipeline(real, pred, pred_prob, clf_name[i], target)
+            mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.mean_perform(real, pred, pred_prob, clf_name[i], target)
             all_result.append(result) 
             print('{}_mean_accuracy:'.format(clf_name[i]), mean_accuracy, '{}_mean_auc:'.format(clf_name[i]), mean_auc)
             
@@ -823,7 +1079,7 @@ class tree(object):
 
                 
             ## result & roc curve
-            mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.accuracy_pipeline(real, pred, pred_prob, clf_name[i], target)
+            mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.mean_perform(real, pred, pred_prob, clf_name[i], target)
             all_result.append(result) 
             print('{}_mean_accuracy:'.format(clf_name[i]), mean_accuracy, '{}_mean_auc:'.format(clf_name[i]), mean_auc)
             
@@ -881,7 +1137,7 @@ class tree(object):
         ## train/test split and gridsearch and prediction
         pred_list, real_list, prob_list, feature_importance_list, param_list = self.prediction_func_pipeline(x, y, model, target, param, index)
         model = model.__name__
-        mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.accuracy_pipeline(real_list, pred_list, prob_list, model, target) 
+        mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.mean_perform(real_list, pred_list, prob_list, model, target) 
 
         return result, feature_importance_list, param_list
     
@@ -944,7 +1200,7 @@ class tree(object):
         with open(args.out_path+'\\gridsearched_model\\best_{}_pred_prob.pkl'.format( target), 'rb') as f: 
             pred_prob = pickle.load(f)
         
-        mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.accuracy_pipeline(real, pred_prob.argmax(1), pred_prob, 'Best model', target)
+        mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.mean_perform(real, pred_prob.argmax(1), pred_prob, 'Best model', target)
         pred_list.append(pred_prob)
 
         for i in range(0, len(clf_name)):
@@ -952,7 +1208,7 @@ class tree(object):
             pred_prob = clf.predict_proba(x_test)
             pred = pred_prob.argmax(1)
             pred_prob = pred_prob[:, 1]
-            mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.accuracy_pipeline(real, pred, pred_prob, clf_name[0], target)
+            mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.mean_perform(real, pred, pred_prob, clf_name[0], target)
             pred_list.append(pred_prob)
             pred_list.append(pred_prob)
 
@@ -972,6 +1228,8 @@ class tree(object):
         
 
         return all_result, pred_list, real
+
+
 ## statistics
     from sklearn.metrics import average_precision_score
 
@@ -1041,6 +1299,20 @@ class tree(object):
 
         
     def roc_curve_func(self, pred, real, prob, save_file):
+        """
+        roc curve를 plotting함 함수 
+        
+        Args:
+            real: 실제 outcome label =정답 (ndarray)
+            pred: predicted result =예측 결과 (ndarray)
+            prob: predicted probability =예측한 확률값 (ndarray)
+            save_file: target outcome (str)
+
+        Returns:
+           sensitivity, specificity, ppv, npv, ppv_ci, npv_ci, optimal_threshold 값 ()
+            
+        """    
+
         from sklearn.metrics import RocCurveDisplay
         optimal_threshold, ix, se, sp, se_ci, sp_ci, ppv, npv, ppv_ci, npv_ci = self.find_optimal_cutoff(real, prob)
         fpr, tpr, thresholds = metrics.roc_curve(real, prob, pos_label=1)
@@ -1253,37 +1525,29 @@ class tree(object):
         return auc, auc_var, lower_upper_ci
 
 ## select target subjects        
-    def select_mortality_subject(self, df):
+    def select_mortality_ahi_subject(self, total_data):
+
+        """
+        전체 feature data를 alive, deceased로 grouping하는 함수
+
+        ahi 값이 5 이상인 data 중 아래 기준에 따라 grouping
+        1) alive: vital(생존) 값이 1 이거나 vital 값이 0이면서 censdate(사망날짜)가 365*15 초과 
+        2) deceased: vital 값이 0이면서 censdate가 365*15 이하
         
-        ## including eds 
-        #quality_index = [id for id, value in data.iterrows() if value['ahi']>=5]
-        #df = data.iloc[quality_index,:]
-        #df.reset_index(drop=True, inplace=True)
+        Args:
+            total_data: 전체 feature data (DataFrame) 
 
-        ## grouping subjective sleep
-        alive_index = [id for id, value in df.iterrows() if (value['vital']==1 or (value['vital']==0 and value['censdate']>365*10))]
-        df['vital'][alive_index]=1
-        alive = df.iloc[alive_index,:]        
-        alive.reset_index(drop=True, inplace=True)
-        alive['vital']=0
+        Returns:
+            alive: 1번 조건을 만족하는 feature (DataFrame)
+            decease: 2번 조건을 만족하는 feature (DataFrame)
+        """
 
-        deceased_index = [id for id, value in df.iterrows() if (value['vital']==0 and value['censdate']<=365*10)]
-        deceased = df.iloc[deceased_index,:]
-        deceased.reset_index(drop=True, inplace=True)
-        deceased['vital']=1
-        
-        print('alive:', len(alive), '\n deceased:', len(deceased))
-
-        return alive, deceased
-
-    def select_mortality_ahi_subject(self, data):
-        
-        ## including eds 
-        quality_index = [id for id, value in data.iterrows() if value['ahi']>=5]
-        df = data.iloc[quality_index,:]
+        ## including ahi >= 5 
+        ahi_index = [id for id, value in total_data.iterrows() if value['ahi']>=5]
+        df = total_data.iloc[ahi_index,:]
         df.reset_index(drop=True, inplace=True)
 
-        ## grouping subjective sleep
+        ## grouping alive & deceased 
         alive_index = [id for id, value in df.iterrows() if (value['vital']==1 or (value['vital']==0 and value['censdate']>365*15))]
         df['vital'][alive_index]=1
         alive = df.iloc[alive_index,:]        
@@ -1299,40 +1563,27 @@ class tree(object):
 
         return alive, deceased
 
-    def select_cvd_subject(self, df_temp):
-       
-        ## including ess<=10 
-        #quality_index = [id for id, value in data.iterrows() if value['ahi']>=5]
-        #df_temp = data.iloc[quality_index,:]
-        #df_temp.reset_index(drop=True, inplace=True)
 
-        ## excluding pre-cvd 
-        cvd_index = [id for id, value in df_temp.iterrows() if value['pre_cvd']==0]
-        df = df_temp.iloc[cvd_index,:]
-        df.reset_index(drop=True, inplace=True)        
+    def select_cvd_ahi_subject(self, total_data):
+    
+        """
+        전체 feature data를 non_cvd, any_cvd로 grouping하는 함수
+
+        ahi 값이 5 이상이면서, pre_cvd 값이 0인 data 중 아래 기준에 따라 grouping
+        1) non_cvd: any_cvd(심혈관 질환 유무) 값이 0 
+        2) any_Cvd: any_cvd 값이 0이 아님
         
-        non_cvd_index = [id for id, value in df.iterrows() if value['any_cvd']==0]
-        any_cvd_index = [id for id, value in df.iterrows() if value['any_cvd']!=0]
-        df['any_cvd'][non_cvd_index]=0
-        df['any_cvd'][any_cvd_index]=1
-        
-        ## any cvd subject
-        non_cvd_index = [id for id, value in df.iterrows() if value['any_cvd']==0]
-        non_cvd = df.iloc[non_cvd_index,:]
-        non_cvd.reset_index(drop=True, inplace=True)
+        Args:
+            total_data: 전체 feature data (DataFrame) 
 
-        any_cvd_index = [id for id, value in df.iterrows() if value['any_cvd']==1]
-        any_cvd = df.iloc[any_cvd_index,:]
-        any_cvd.reset_index(drop=True, inplace=True)
-
-        print('any_cvd:', len(any_cvd), '\n non_cvd:', len(non_cvd))
-        return non_cvd, any_cvd
-
-    def select_cvd_ahi_subject(self, data):
-       
-        ## including ess<=10 
-        quality_index = [id for id, value in data.iterrows() if value['ahi']>=5]
-        df_temp = data.iloc[quality_index,:]
+        Returns:
+            non_cvd: 1번 조건을 만족하는 feature (DataFrame)
+            any_cvd: 2번 조건을 만족하는 feature (DataFrame)
+        """
+   
+        ## including ahi >= 5 
+        ahi_index = [id for id, value in total_data.iterrows() if value['ahi']>=5]
+        df_temp = total_data.iloc[ahi_index,:]
         df_temp.reset_index(drop=True, inplace=True)
 
         ## excluding pre-cvd 
@@ -1357,39 +1608,23 @@ class tree(object):
         print('any_cvd:', len(any_cvd), '\n non_cvd:', len(non_cvd))
         return non_cvd, any_cvd
 
-    def select_cvd_vital_subject(self, df):
 
-        quality_index = [id for id, value in df.iterrows() if value['pre_cvd']==0]
-        df = df.iloc[quality_index,:]
-        df.reset_index(drop=True, inplace=True)
-
-        
-        ## grouping subjective sleep
-        alive_index = [id for id, value in df.iterrows() if value['cvd_vital']==1]
-        alive = df.iloc[alive_index,:]
-        alive.reset_index(drop=True, inplace=True)
-
-        deceased_temp_index = [id for id, value in df.iterrows() if value['cvd_vital']==0]        
-        deceased = df.iloc[deceased_temp_index,:]
-        deceased.reset_index(drop=True, inplace=True)
-
-        print('alive:', len(alive), '\n deceased:', len(deceased))
-
-        return alive, deceased
 
 if __name__ == '__main__':
-
-
     args = get_args()
     path = args.feature_path
     total_feature = pd.read_excel(path)
     tree_shhs= tree(args)
     
-    # classification -mortality subject (group1: good (1) / group2: bad (0))
-    alive, deceased = tree_shhs.extract_feautres(args.target, total_feature)
-    vital_group = pd.concat([alive, deceased])
+    # classification -mortality subject (group1: good (1) / group2: bad (0)) (target outcome에 따라 feautre를 grouping)
+    group_0, group_1 = tree_shhs.grouping_features(args.target, total_feature)
+    vital_group = pd.concat([group_0, group_1])
 
-    tree_shhs.performance_result(args.target, vital_group)
+    # 학습이 필요한 경우
+    tree_shhs.save_performance_result(args.target, vital_group)
+
+    # 이미 학습된 classifier가 저장된 경우
+    
     tree_shhs.save_concat_cv_result(args.target, vital_group)
     tree_shhs.save_best_result(args.target, vital_group)
     tree_shhs.km_plot(args.target,vital_group)
