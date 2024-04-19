@@ -89,8 +89,7 @@ class tree(object):
             'any_cvd': self.select_cvd_ahi_subject
         }
     
-
-    def grouping_features(self, outcome, total_data):
+    def extract_features(self, outcome: str, total_data: pd.DataFrame) -> pd.DataFrame:
         
         """
         Target outcome에 따라 grouping된 feature 값을 반환하는 함수
@@ -103,8 +102,9 @@ class tree(object):
             target_func[outcome](total_data): target_func[outcome](total_data) 결과
 
         """
-
-        return self.target_func[outcome](total_data)
+        group_0, group_1 = self.target_func[outcome](total_data)
+        vital_group = pd.concat([group_0, group_1])
+        return vital_group
 
 
     def save_performance_result(self, outcome, grouping_data):
@@ -1277,7 +1277,7 @@ class tree(object):
         return auc, auc_var, lower_upper_ci
 
 ## select target subjects        
-    def select_mortality_ahi_subject(self, total_data):
+    def select_mortality_ahi_subject(self, total_data: pd.DataFrame) -> tuple[pd.DataFrame,pd.DataFrame]:
 
         """
         전체 feature data를 alive, deceased로 grouping하는 함수
@@ -1295,19 +1295,19 @@ class tree(object):
         """
 
         ## including ahi >= 5 
-        ahi_index = [id for id, value in total_data.iterrows() if value['ahi']>=5]
-        df = total_data.iloc[ahi_index,:]
+        ahi_index = [id for id, value in total_data.iterrows() if value['ahi'] >= 5]
+        df: pd.DataFrame = total_data.iloc[ahi_index,:]
         df.reset_index(drop=True, inplace=True)
 
         ## grouping alive & deceased 
         alive_index = [id for id, value in df.iterrows() if (value['vital']==1 or (value['vital']==0 and value['censdate']>365*15))]
         df['vital'][alive_index]=1
-        alive = df.iloc[alive_index,:]        
+        alive: pd.DataFrame = df.iloc[alive_index,:]        
         alive.reset_index(drop=True, inplace=True)
         alive['vital']=0
 
         deceased_index = [id for id, value in df.iterrows() if (value['vital']==0 and value['censdate']<=365*15)]
-        deceased = df.iloc[deceased_index,:]
+        deceased: pd.DataFrame = df.iloc[deceased_index,:]
         deceased.reset_index(drop=True, inplace=True)
         deceased['vital']=1
         
@@ -1316,7 +1316,7 @@ class tree(object):
         return alive, deceased
 
 
-    def select_cvd_ahi_subject(self, total_data):
+    def select_cvd_ahi_subject(self, total_data: pd.DataFrame) -> tuple[pd.DataFrame,pd.DataFrame]:
     
         """
         전체 feature data를 non_cvd, any_cvd로 grouping하는 함수
@@ -1334,28 +1334,16 @@ class tree(object):
         """
    
         ## including ahi >= 5 
-        ahi_index = [id for id, value in total_data.iterrows() if value['ahi']>=5]
-        df_temp = total_data.iloc[ahi_index,:]
-        df_temp.reset_index(drop=True, inplace=True)
+        df_ahi: pd.DataFrame = total_data[total_data['ahi']>=5].reset_index(drop=True)
 
         ## excluding pre-cvd 
-        cvd_index = [id for id, value in df_temp.iterrows() if value['pre_cvd']==0]
-        df = df_temp.iloc[cvd_index,:]
-        df.reset_index(drop=True, inplace=True)        
-        
-        non_cvd_index = [id for id, value in df.iterrows() if value['any_cvd']==0]
-        any_cvd_index = [id for id, value in df.iterrows() if value['any_cvd']!=0]
-        df['any_cvd'][non_cvd_index]=0
-        df['any_cvd'][any_cvd_index]=1
-        
-        ## any cvd subject
-        non_cvd_index = [id for id, value in df.iterrows() if value['any_cvd']==0]
-        non_cvd = df.iloc[non_cvd_index,:]
-        non_cvd.reset_index(drop=True, inplace=True)
+        df_pre_cvd: pd.DataFrame = df_ahi[df_ahi['pre_cvd']==0].reset_index(drop=True)
 
-        any_cvd_index = [id for id, value in df.iterrows() if value['any_cvd']==1 and value['cvd_date']!=0]
-        any_cvd = df.iloc[any_cvd_index,:]
-        any_cvd.reset_index(drop=True, inplace=True)
+        ## any cvd subject
+        non_cvd: pd.DataFrame = df_pre_cvd[df_pre_cvd['any_cvd']==0].reset_index(drop=True)
+
+        any_cvd: pd.DataFrame = df_pre_cvd[df_pre_cvd['any_cvd']!=0 and df_pre_cvd['cvd_date']!=0].reset_index(drop=True)
+        any_cvd[:,'any_cvd'] = 1
 
         print('any_cvd:', len(any_cvd), '\n non_cvd:', len(non_cvd))
         return non_cvd, any_cvd
@@ -1369,8 +1357,7 @@ if __name__ == '__main__':
     tree_shhs= tree(args)
     
     # classification -mortality subject (group1: good (1) / group2: bad (0)) (target outcome에 따라 feautre를 grouping)
-    group_0, group_1 = tree_shhs.grouping_features(args.target, total_feature)
-    vital_group = pd.concat([group_0, group_1])
+    vital_group = tree_shhs.extract_features(args.target, total_feature)
 
     # 학습이 필요한 경우
     tree_shhs.save_performance_result(args.target, vital_group)
