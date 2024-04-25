@@ -107,7 +107,7 @@ class tree(object):
         return vital_group
 
 
-    def save_performance_result(self, outcome, grouping_data):
+    def save_performance_result(self, outcome: str, grouping_data: pd.DataFrame):
         
         """
         Target outcome에 따라 classifier별 분류 성능을 excel로 저장하는 함수
@@ -293,7 +293,7 @@ class tree(object):
     
 
 
-    def save_concat_cv_result(self, outcome, grouping_data):
+    def save_concat_cv_result(self, outcome: str, grouping_data: pd.DataFrame):
 
         """
         Target outcome에 따라 classifier별 분류 성능을 excel로 저장하는 함수 (fold 별 예측 결과를 하나의 세트로 간주하여 계산)
@@ -362,7 +362,7 @@ class tree(object):
 
 
 
-    def save_best_result(self, target, group):
+    def save_best_result(self, outcome: str, grouping_data: pd.DataFrame):
     
         """
         저장된 best fold classifier를 불러와서 result값을 저장하는 함수
@@ -384,9 +384,9 @@ class tree(object):
 
 
         # for only hrv features       
-        index = group.drop(drop_list, axis=1).columns
-        x = group.drop(drop_list, axis=1).to_numpy()
-        y = group['{}'.format(target)].to_numpy()
+        index = grouping_data.drop(drop_list, axis=1).columns
+        x = grouping_data.drop(drop_list, axis=1).to_numpy()
+        y = grouping_data['{}'.format(outcome)].to_numpy()
      
         ## data split
         test_index_list=[]
@@ -395,9 +395,9 @@ class tree(object):
             test_index_list.append(test_index)    
 
         ## load best cross-validation result classifier (xgb, catb, lgb)
-        xgb_clf, xgb_fold = self.load_best_cv(xgb, target)
-        catb_clf, catb_fold = self.load_best_cv(catb, target)
-        lgb_clf, lgb_fold = self.load_best_cv(lgb, target)
+        xgb_clf, xgb_fold = self.load_best_cv(xgb, outcome)
+        catb_clf, catb_fold = self.load_best_cv(catb, outcome)
+        lgb_clf, lgb_fold = self.load_best_cv(lgb, outcome)
         #clf_list = [xgb_clf, catb_clf, lgb_clf]
             
         xgb_dataset = [x[test_index_list[xgb_fold]], y[test_index_list[xgb_fold]]]
@@ -406,8 +406,8 @@ class tree(object):
         dataset_list = [xgb_dataset, catb_dataset, lgb_dataset]
         
         ## load best cross-validation result classifier (rf, lr)
-        rf_clf, rf_fold = self.load_best_cv(rf, target)
-        lr_clf, lr_fold = self.load_best_cv(lr, target)
+        rf_clf, rf_fold = self.load_best_cv(rf, outcome)
+        lr_clf, lr_fold = self.load_best_cv(lr, outcome)
         rf_dataset = [x[test_index_list[rf_fold]], y[test_index_list[rf_fold]]] 
         lr_dataset = [x[test_index_list[lr_fold]], y[test_index_list[lr_fold]]]        
         dataset_list = [xgb_dataset, catb_dataset, lgb_dataset, rf_dataset, lr_dataset]        
@@ -416,27 +416,27 @@ class tree(object):
 
 
         ## save plot together
-        result, pred_list, param_list = self.best_cv_plot(clf_list, dataset_list, cv_trainset, index, target)
+        result, pred_list, param_list = self.best_cv_plot(clf_list, dataset_list, outcome)
                 
         plt.clf()
         
-        xgb_dataset_df = group.iloc[test_index_list[xgb_fold]]
-        catb_dataset_df = group.iloc[test_index_list[catb_fold]]
-        lgb_dataset_df = group.iloc[test_index_list[lgb_fold]]
+        xgb_dataset_df = grouping_data.iloc[test_index_list[xgb_fold]]
+        catb_dataset_df = grouping_data.iloc[test_index_list[catb_fold]]
+        lgb_dataset_df = grouping_data.iloc[test_index_list[lgb_fold]]
 
         ## result save
-        writer = pd.ExcelWriter(args.save_path + '\\{}_survival_analysis.xlsx'.format(target)) 
+        writer = pd.ExcelWriter(args.save_path + '\\{}_survival_analysis.xlsx'.format(outcome)) 
         tree_result = pd.DataFrame(result)
         tree_pred_list=pd.DataFrame(pred_list)
         tree_param_list=pd.DataFrame(param_list)
 
-        tree_result.to_excel(writer, sheet_name = '{}_result'.format(target))
-        tree_pred_list.to_excel(writer, sheet_name = '{}_pred_prob'.format(target))
-        tree_param_list.to_excel(writer, sheet_name = '{}_param'.format(target))
+        tree_result.to_excel(writer, sheet_name = '{}_result'.format(outcome))
+        tree_pred_list.to_excel(writer, sheet_name = '{}_pred_prob'.format(outcome))
+        tree_param_list.to_excel(writer, sheet_name = '{}_param'.format(outcome))
 
-        xgb_dataset_df.to_excel(writer, sheet_name = '{}_xgb_test_Data'.format(target))
-        catb_dataset_df.to_excel(writer, sheet_name = '{}_catb_test_Data'.format(target))
-        lgb_dataset_df.to_excel(writer, sheet_name = '{}_lgb_test_Data'.format(target))
+        xgb_dataset_df.to_excel(writer, sheet_name = '{}_xgb_test_Data'.format(outcome))
+        catb_dataset_df.to_excel(writer, sheet_name = '{}_catb_test_Data'.format(outcome))
+        lgb_dataset_df.to_excel(writer, sheet_name = '{}_lgb_test_Data'.format(outcome))
         
         writer.save()   
     
@@ -617,7 +617,7 @@ class tree(object):
     
 
 
-    def load_best_cv(self, classifier, outcome):
+    def load_best_cv(self, classifier, outcome: str):
 
         """
         저장된 best model pkl값을 읽어오는 함수 
@@ -645,7 +645,7 @@ class tree(object):
         return clf, best_fold 
     
             
-    def concat_prediction_cv_pipeline(self, x, outcome_label, classifier, outcome, feature_name):
+    def concat_prediction_cv_pipeline(self, x: np.ndarray, outcome_label: np.ndarray, classifier, outcome: str, feature_name: dict):
 
         """
         feature(x)를 classifier에 학습시켜 fold별 정답(outcome label)를 예측한 결과, 실제 정답, 예측한 확률값을 return하는 함수 
@@ -733,28 +733,21 @@ class tree(object):
         return concat_result, real_set, prob_set
 
 
-    def best_cv_plot(self, clf_list, dataset_list, cv_trainset, index, target):
+    def best_cv_plot(self, clf_list, dataset_list, outcome):
 
         """
         classifier별 roc curve를 plotting하는 함수 
         
-        학습 방법
-        1) stratified kfold cross-validation
-        2) smote를 통해 data augmentation = make_pipeline 함수 사용
-        3) gridsearch를 통해 hyperparameter 선정
 
         Args:
-            x: features (ndarray)
-            outcome_label: labeled outcome (0 or 1) (ndarray)
-            classifier: classifier (Class)
+            clf_list: classifier (Class)
+            datset_list: target outcome (Str)
             outcome: target outcome (Str)
-            hyperparameter_list: hyperparmeter list (dict)
-            feature_name: feature column명 
 
         Returns:
-            concat_result: fold 별 예측 결과를 하나의 세트로 간주하여 계산한 성능 결과 (dict)
-            real_set: fold 별 실제 정답 값을 concatenate한 데이터 (ndarray)
-            prob_set: fold 별 실제 예측 probability 값을 concatenate한 데이터 (ndarray)
+            all_result: 
+            pred_list: 
+            param_list: 
             
         """
 
@@ -781,7 +774,7 @@ class tree(object):
             param_list.append(best_param)
             
             ## result & roc curve
-            mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.mean_perform(real, pred, pred_prob, clf_name[i], target)
+            mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.mean_perform(real, pred, pred_prob, clf_name[i], outcome)
             all_result.append(result) 
             print('{}_mean_accuracy:'.format(clf_name[i]), mean_accuracy, '{}_mean_auc:'.format(clf_name[i]), mean_auc)
             
@@ -808,14 +801,14 @@ class tree(object):
         print(' xgb_lgbm_pvalue: ',10**xgb_lgbm_pvalue, ' catb_lgbm_pvalue:',10**catb_lgbm_pvalue, 
             ' lgbm_RF_pvalue:',10**lgbm_RF_pvalue, ' lgbm_LR_pvalue:',10**lgbm_LR_pvalue      )
 
-        plt.savefig(args.save_path+'\\{}_roc_curve_best_model_all_model_0419.eps'.format(target), format='eps')
+        plt.savefig(args.save_path+'\\{}_roc_curve_best_model_all_model_0419.eps'.format(outcome), format='eps')
         plt.clf()
 
         return all_result, pred_list, param_list   
 
 
 ## accuracy/ feature importance
-    def fold_perform(self, real, pred, prob, classifier_name, outcome):
+    def fold_perform(self, real: np.ndarray, pred: np.ndarray, prob: np.ndarray, classifier_name: str, outcome: str):
     
         """
         cross-validation 결과 중 가장 성능이 좋은 fold, 평균 accuracy, sensitivity, specificity, ppv, npv, auc, fold별 각 성능값을 return하는 함수 
@@ -890,7 +883,7 @@ class tree(object):
         return best_fold, mean_accuracy, mean_se, mean_sp, mean_ppv, mean_npv, mean_auc, performance_result  
 
 
-    def mean_perform(self, real, pred, prob, classifier_name, outcome):
+    def mean_perform(self, real: np.ndarray, pred: np.ndarray, prob: np.ndarray, classifier_name: str, outcome: str):
 
         """
         예측 결과의 accuracy, precision, recall, f1, auc 값과 각 통계값의 mean(confidence_interval) 저장값을 return하며 roc curve를 plotting함 함수 
@@ -935,7 +928,7 @@ class tree(object):
         return accuracy, precision, recall, f1, auc_result[0], result
 
 
-    def plot_feature_importance(self, feature__importance, feature_name, classifier_name):
+    def plot_feature_importance(self, feature__importance, feature_name: list, classifier_name: str) -> pd.DataFrame:
 
         """
         feature importance 값을 feature의 종류(demographic, sleep feature, HRV)에 따라 
@@ -1050,7 +1043,7 @@ class tree(object):
         return optimal_threshold, ix, sensitivity_point_estimate, specificity_point_estimate, sensitivity_confidence_interval, specificity_confidence_interval, ppv_estimate, npv_estimate, ppv_confidence_interval, npv_confidence_interval
 
         
-    def roc_curve_func(self, pred, real, prob, save_file):
+    def roc_curve_func(self, pred: np.ndarray, real: np.ndarray, prob: np.ndarray, save_file: str):
         """
         roc curve를 plotting함 함수 
         
