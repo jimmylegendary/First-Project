@@ -6,26 +6,16 @@ sys.path.extend(['D:\\Hyunji\\Research\\Sleep\\Quality prediction\\code\\src'])
 import pandas as pd
 import pickle
 import matplotlib.pyplot as plt
-from itertools import chain
-from collections import defaultdict
 import argparse
-from ctypes import DEFAULT_MODE
 import numpy as np
 from xml.etree.ElementTree import parse
-from scipy.signal import butter, lfilter
 from statistics import mean
 
-import sys
 sys.path.extend(['D:\\Hyunji\\Research\\Sleep\\Quality prediction\\code\src'])
 
-from sklearn.model_selection import RepeatedKFold, RepeatedStratifiedKFold, train_test_split
-import matplotlib.pyplot as plt 
 import plotly.offline as py
-
 import plotly.graph_objs as go
-import plotly.tools as tls
 
-from catboost import CatBoostClassifier, Pool
 from catboost import CatBoostClassifier as catb
 from lightgbm import LGBMClassifier as lgb
 from xgboost import XGBClassifier as xgb
@@ -34,12 +24,9 @@ from sklearn.ensemble import RandomForestClassifier as rf
 
 import seaborn as sns
 
-from sklearn.utils import resample
 import scipy.stats
-from sklearn.metrics import classification_report. roc_auc_score,  roc_curve, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
-from sklearn.model_selection import LeaveOneOut, StratifiedKFold, KFold, ParameterGrid, learning_curve
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
-from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import roc_curve, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
+from sklearn.model_selection import StratifiedKFold, KFold, train_test_split, GridSearchCV
 from sklearn.decomposition import PCA
 
 import matplotlib.pyplot as plt
@@ -48,7 +35,6 @@ from scipy.special import ndtri
 
 from imblearn.over_sampling import SMOTE
 
-from xgbse.metrics import concordance_index
 import shap
 from imblearn.pipeline import make_pipeline, Pipeline
 from lifelines import KaplanMeierFitter as KM
@@ -368,7 +354,7 @@ class tree(object):
         cv_trainset = []
 
 
-        # for only hrv features       
+        # selecting feature (without drop_list) + x(학습용 데이터), y(label 데이터)
         index = grouping_data.drop(drop_list, axis=1).columns
         x = grouping_data.drop(drop_list, axis=1).to_numpy()
         y = grouping_data['{}'.format(outcome)].to_numpy()
@@ -539,8 +525,7 @@ class tree(object):
         best_param_list =[]
         
         ## kfold prediction (5 stratified fold cross-validation 수행 + smote를 통해 data augmentation = make_pipeline 함수 사용)
-        from imblearn.pipeline import make_pipeline
-        from sklearn.decomposition import PCA
+
         n_times=1
         cv = StratifiedKFold(5, shuffle=True, random_state=250)
         smote = SMOTE(random_state=37)
@@ -602,7 +587,7 @@ class tree(object):
     
 
 
-    def load_best_cv(self, classifier, outcome: str):
+    def load_best_cv(self, classifier, outcome: str) -> tuple[any, str]:
 
         """
         저장된 best model pkl값을 읽어오는 함수 
@@ -718,15 +703,15 @@ class tree(object):
         return concat_result, real_set, prob_set
 
 
-    def best_cv_plot(self, clf_list, dataset_list, outcome):
+    def best_cv_plot(self, clf_list: list, dataset_list, outcome):
 
         """
-        classifier별 roc curve를 plotting하는 함수 
+        classifier별 delong test 결과 print 및 roc curve 모두 겹쳐서 plotting
         
 
         Args:
-            clf_list: classifier (Class)
-            datset_list: target outcome (Str)
+            clf_list: classifier list (list = [class, class, class, ...])
+            datset_list: classifier 별 best fold dataset list (list =[[x, y], [x, y], [x, y], ...])
             outcome: target outcome (Str)
 
         Returns:
@@ -742,7 +727,10 @@ class tree(object):
         all_result=[]
         param_list =[]
         clf_name=['XGBoost','CatBoost','LGBMClassifier', 'RandomForestClassifier', 'LogisticRegression']
-        #clf_name=['LGBMClassifier', 'RandomForestClassifier', 'LogisticRegression']
+        
+        ##shap figure
+        #clf_name=['XGBoost','CatBoost','LGBMClassifier']
+
 
         for i in range(0, len(clf_name)):
             
@@ -764,6 +752,7 @@ class tree(object):
             print('{}_mean_accuracy:'.format(clf_name[i]), mean_accuracy, '{}_mean_auc:'.format(clf_name[i]), mean_auc)
             
             '''
+            #shap figure
             ## feature importance & shap value
             explainer = shap.TreeExplainer(clf)
             shap_values = explainer.shap_values(x_test)           
@@ -793,7 +782,7 @@ class tree(object):
 
 
 ## accuracy/ feature importance
-    def fold_perform(self, real: np.ndarray, pred: np.ndarray, prob: np.ndarray, classifier_name: str, outcome: str):
+    def fold_perform(self, real: np.ndarray, pred: np.ndarray, prob: np.ndarray, classifier_name: str, outcome: str) -> tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
     
         """
         cross-validation 결과를 저장 + 가장 성능이 좋은 fold, 평균 accuracy, sensitivity, specificity, ppv, npv, auc, fold별 각 성능값을 return하는 함수 
@@ -833,8 +822,8 @@ class tree(object):
             accuracy = accuracy_score(real[k], pred[k])
             recall = recall_score(real[k], pred[k], pos_label=1)
             f1 = f1_score(real[k], pred[k], pos_label=1)
-            fpr, tpr, thresholds = metrics.roc_curve(real[k], prob[k], pos_label=1)
-            auc = metrics.auc(fpr, tpr)
+            fpr, tpr, thresholds = roc_curve(real[k], prob[k], pos_label=1)
+            auc = auc(fpr, tpr)
             se, sp, se_ci, sp_ci, ppv, npv, ppv_ci, npv_ci,optimal_threshold = self.roc_curve_func(pred[k], real[k], prob[k], classifier_name+': '+str(auc))
 
 
@@ -961,8 +950,6 @@ class tree(object):
 
 
 ## statistics
-    from sklearn.metrics import average_precision_score
-
     def _proportion_confidence_interval(self, r, n, z):  
         A = 2*r + z**2
         B = z*sqrt(z**2 + 4*r*(1 - r/n))
@@ -1002,11 +989,7 @@ class tree(object):
 
     def find_optimal_cutoff(self, real, pred):
         fpr, tpr, thresholds = roc_curve(real, pred)
-        '''
-        (1-tpr) ** 2 + (1-(1-fpr)) ** 2
-        ix = np.argmin((1-tpr) ** 2 + (1-(1-fpr)) ** 2)
-        
-        '''
+ 
         J = tpr - fpr
         ix = np.argmax(J)
         optimal_threshold = thresholds[ix]
@@ -1042,10 +1025,8 @@ class tree(object):
            sensitivity, specificity, ppv, npv, ppv_ci, npv_ci, optimal_threshold 값 ()
             
         """    
-
-        from sklearn.metrics import RocCurveDisplay
         optimal_threshold, ix, se, sp, se_ci, sp_ci, ppv, npv, ppv_ci, npv_ci = self.find_optimal_cutoff(real, prob)
-        fpr, tpr, thresholds = metrics.roc_curve(real, prob, pos_label=1)
+        fpr, tpr, thresholds = roc_curve(real, prob, pos_label=1)
         #plt.clf()
         plt.plot(fpr, tpr, label=figure_legend)
         #plt.plot(fpr, tpr)
@@ -1060,14 +1041,7 @@ class tree(object):
 
         return se, sp, se_ci, sp_ci, ppv, npv, ppv_ci, npv_ci,optimal_threshold
 
-        
-    def mean_confidence_interval(self, data, confidence=0.95):
-        a = 1.0 * np.array(data)
-        n = len(a)
-        m, se = np.mean(a), scipy.stats.sem(a)
-        h = se * scipy.stats.t.ppf((1 + confidence) / 2., n-1)
-        return m, h
-        
+           
     def compute_midrank(self, x):
         J = np.argsort(x)
         Z = x[J]
@@ -1230,9 +1204,7 @@ class tree(object):
 
 
     def auc_ci_Delong(self, y_true, y_scores, alpha=.95):
-        import numpy as np
-        from scipy import stats
-        import scipy.stats
+
         y_true = np.array(y_true)
         y_scores = np.array(y_scores)
 
