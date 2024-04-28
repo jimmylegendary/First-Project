@@ -51,15 +51,74 @@ def get_args():
     
     return parser.parse_args()
 
+class MyDataset:
+    feature_name: str
+    x:np.ndarray
+    y:np.ndarray
+    
+class MyResult:
+    def __init__(self):
+        self.preds: np.ndarray
+        self.reals: np.ndarray
+        self.probs: np.ndarray
+        self.feature_importances: list
+        self.best_params: list
 
 class tree(object):
     def __init__(self, args):
         self.args = args
+        self.dataset: MyDataset
         self.target_func = {
             'vital': self.select_mortality_ahi_subject,
             'any_cvd': self.select_cvd_ahi_subject
         }
-    
+        self.classifier = {
+            'xgb':xgb,
+            'lgb':lgb,
+            'catb':catb,
+            'rf':rf,
+            'lr':lr
+        }
+        self.result: dict[str, MyResult] = {}
+        self.hyperparmas = {
+            'xgb': {
+                'xgbclassifier__max_depth': [2,3,4,5,6,7,8,9], 
+                'xgbclassifier__n_estimators': [100,200,300,400,500],
+                'xgbclassifier__learning_rate': [0.01],
+                'xgbclassifier__min_child_weight' : [1, 3, 5],
+                'xgbclassifier__objective': ['binary:logistic'],
+                'xgbclassifier__use_label_encoder': ['False'],
+                'xgbclassifier__random_state':[22]
+            },
+            'lgb': {
+                'lgbmclassifier__max_depth': [2,3,4,5,6,7,8,9],
+                'lgbmclassifier__n_estimators': [100,200,300,400,500],
+                'lgbmclassifier__learning_rate': [0.01],
+                'lgbmclassifier__min_data_in_leaf': [10, 20, 30, 40, 50],            
+                'lgbmclassifier__objective': ['binary'],
+                'lgbmclassifier__random_state':[22]        
+            },
+            'catb': {
+                'catboostclassifier__iterations': [100,200,300,400,500],
+                'catboostclassifier__depth': [2,3,4,5,6,7,8,9],
+                'catboostclassifier__learning_rate': [0.01],
+                'catboostclassifier__l2_leaf_reg': [3,5,7],
+                'catboostclassifier__loss_function': ['Logloss'],
+                'catboostclassifier__random_state':[22]
+            },
+            'rf': {
+                'randomforestclassifier__max_depth': [2,3,4,5,6,7,8,9],
+                'randomforestclassifier__min_samples_leaf': [1,5,10,20],
+                'randomforestclassifier__n_estimators': [100,200,300,400,500],
+                'randomforestclassifier__random_state':[22]
+            },
+            'lr': {
+                'logisticregression__C': [0.0011],
+                'logisticregression__random_state':[22]
+            }
+        }
+        self.drop_list = ['Unnamed: 0','name','vital','sleep_quality','any_cvd','pre_cvd','sleep_apnea','pre_sleep_apnea','cvd_death','censdate','cvd_dthdt','cvd_vital','cvd_date']
+        
     def extract_features(self, outcome: str, total_data: pd.DataFrame) -> pd.DataFrame:
         
         """
@@ -75,8 +134,96 @@ class tree(object):
         """
         group_0, group_1 = self.target_func[outcome](total_data)
         concated_group = pd.concat([group_0, group_1])
-        return concated_group
+        
+        self.grouping_data = concated_group
+        self.outcome = outcome
 
+        return concated_group
+    
+    def prepare_dataset(self, x, y):
+        cv = StratifiedKFold(5, shuffle=True, random_state=250)
+        self.cv = cv
+        self.folded_dataset = []
+
+        # cross validation에 따라 train, test split
+        for train_index, test_index in cv.split(x, y):
+            x_train, x_test = x[train_index], x[test_index]
+            y_train, y_test = y[train_index], y[test_index]
+            dataset = {
+                'train': {
+                    'x': x_train,
+                    'y': y_train,
+                },
+                'test': {
+                    'x': x_test,
+                    'y': y_test,
+                },
+            }
+            self.folded_dataset.append(dataset)
+
+        self.dataset.feature_name = self.grouping_data.drop(self.drop_list, axis=1).columns
+        self.dataset.x = self.grouping_data.drop(self.drop_list, axis=1).to_numpy()
+        self.dataset.y  = self.grouping_data['{}'.format(self.outcome)].to_numpy()
+
+    def train(self, classifier_name):
+        args = self.args
+        result = MyResult()
+
+        # initialize output (return값 list로 initialize)
+        pred_list, real_list, prob_list = [], [], []
+        feature_importance_list = []
+        best_param_list =[]
+        
+        ## kfold prediction (5 stratified fold cross-validation 수행 + smote를 통해 data augmentation = make_pipeline 함수 사용)
+        
+        smote = SMOTE(random_state=37)
+        smp_pipeline = make_pipeline(smote, self.classifier[classifier_name])
+        hyperparameter = self.hyperparmas[classifier_name]
+        
+        for kfold, dataset in enumerate(self.folded_dataset):
+            x_train, y_train, x_test, y_test = \
+                dataset['train']['x'],dataset['train']['x'],\
+                dataset['test']['y'],dataset['test']['y']
+            gird_search_clf = GridSearchCV(smp_pipeline, hyperparameter, scoring='roc_auc', cv=self.cv, refit=True)
+            gird_search_clf.fit(x_train, y_train)
+
+            ## grid search
+            # save grid searched model (pkl로 각 grid search별 best score 저장)
+            with open(args.out_path+'\\{}_{}_{}.pkl'.format(str(classifier_name), self.outcome, str(kfold)), 'wb') as f: 
+                pickle.dump(gird_search_clf, f)
+
+            print('GridSearch 최고 점수: ', gird_search_clf.best_score_)
+            print('GridSearch 최적 파라미터: ', gird_search_clf.best_params_)
+    
+            # load best estimator for gridsearched with training dataset
+            best_param_list.append(gird_search_clf.best_params_)
+            clf = gird_search_clf.best_estimator_.steps[1][1]
+
+            pred_prob = clf.predict_proba(x_test)
+            pred = pred_prob.argmax(1)
+            pred_prob = pred_prob[:, 1]
+            
+            ## save fold dataset
+            # save grid searched model (prediction 결과, predicted probability, 실제 label 값(정답), feature(x 값))
+            save_dataset = [pred, pred_prob, y_test.reshape(-1), pd.DataFrame(x_test, columns=self.dataset.feature_name)]
+            with open(args.out_path+'\\{}_{}_{}_dataset.pkl'.format(str(classifier_name), self.outcome, str(kfold)), 'wb') as f: 
+                pickle.dump(save_dataset, f)
+
+            pred_list.append(pred)
+            real_list.append(y_test.reshape(-1))
+            prob_list.append(pred_prob)
+            
+            ## feature importance (logistic regression 제외 나머지 classifier의 feature importance 내장 함수 이용하여 feature importance 저장)
+            feature_importance= clf.feature_importances_ if classifier_name != 'lr' else clf.coef_[0]
+            feature_importance_list.append(feature_importance)
+        
+        result.preds = np.array(pred_list)
+        result.reals = np.array(real_list)
+        result.probs = np.array(prob_list)
+        result.feature_importances = feature_importance_list
+        result.best_params = best_param_list
+        
+        self.result[classifier_name] = result
 
     def save_performance_result(self, outcome: str, grouping_data: pd.DataFrame):
         
@@ -144,10 +291,8 @@ class tree(object):
 
         lr_param = {
             'logisticregression__C': [0.0011],
-            #'logisticregression__max_iter': [200, 300, 400, 500, 1000, 1500,2000],
-            #'logisticregression__solver': ['newton-cg', 'lbfgs', 'liblinear', 'sag', 'saga'],
             'logisticregression__random_state':[22]
-            }
+        }
 
         ## classifier result (classifier 별로 clasification result, feautre importnace, hyperparmeter 저장)
         xgb_result, xgb_feature, xgb_best_param = self.perform_importance_hyperparam(xgb, xgb_param, grouping_data, outcome)
@@ -177,7 +322,7 @@ class tree(object):
         writer.save()
 
 
-    def perform_importance_hyperparam(self, classifier, hyperparameter_list: dict, grouping_data: pd.DataFrame, outcome: str) -> tuple[dict, pd.DataFrame, list]:
+    def perform_importance_hyperparam(self, classifier_name, hyperparameter_list: dict, grouping_data: pd.DataFrame, outcome: str) -> tuple[dict, pd.DataFrame, list]:
 
         """
         outcome에 따라 grouping된 data에서 performance result, feature importance, hyperparameter 결과를 return하는 함수 (+roc curve plotting)
@@ -195,24 +340,11 @@ class tree(object):
 
         """
 
-        args = self.args
-
-        ## drop feature : input feature로 사용되지 않을 column명 list
-        drop_list = ['Unnamed: 0','name','vital','sleep_quality','any_cvd','pre_cvd','sleep_apnea','pre_sleep_apnea','cvd_death','censdate','cvd_dthdt','cvd_vital','cvd_date']
-
-
-        ## split data by features and label(outcome) : grouping된 data에서 feature_name(column명), x(feature 값), y(labeled outcome)으로 분리
-        feature_name = grouping_data.drop(drop_list, axis=1).columns
-        x: np.ndarray = grouping_data.drop(drop_list, axis=1).to_numpy()
-        y: np.ndarray  = grouping_data['{}'.format(outcome)].to_numpy()
-
-
         ## predicted feature, real feature, probabilities, feature importance, best parameter result
-        pred_list, real_list, prob_list, feature_importance, hyperparameter = self.fold_prediction_importance_hyperparam(x, y, classifier, outcome, hyperparameter_list, feature_name)
+        self.train(classifier_name)
 
 
         ## save performance result with cross-validation : cross-validation 결과 저장        
-        classifier_name = classifier.__name__
         best_fold, mean_accuracy, mean_se, mean_sp, mean_ppv, mean_npv, mean_auc, performance_result = self.fold_perform(real_list, pred_list, prob_list, classifier_name, outcome)
         print('{}_mean_accuracy:'.format(classifier_name), mean_accuracy, ', {}_mean_auc:'.format(classifier_name), mean_auc)
         
@@ -226,7 +358,7 @@ class tree(object):
 
 
         ## plot & save bar graph of feature importance : fold의 평균 feature importance 값 plotting
-        feature_importance_list = self.plot_feature_importance(feature_mean, feature_name, classifier_name)        
+        feature_importance_list = self.plot_feature_importance(feature_mean, self.dataset.feature_name, classifier_name)        
         plt.savefig(args.out_path+'//{}_{}_feature_importance.eps'.format(outcome, classifier_name))
         plt.close()     
 
@@ -363,7 +495,7 @@ class tree(object):
         test_index_list=[]
         cv = StratifiedKFold(5, shuffle=True, random_state=250)
         for train_index, test_index in cv.split(x, y):
-            test_index_list.append(test_index)    
+            test_index_list.append(test_index)
 
         ## load best cross-validation result classifier (xgb, catb, lgb)
         xgb_clf, xgb_fold = self.load_best_cv(xgb, outcome)
@@ -526,64 +658,59 @@ class tree(object):
         
         ## kfold prediction (5 stratified fold cross-validation 수행 + smote를 통해 data augmentation = make_pipeline 함수 사용)
 
-        n_times=1
         cv = StratifiedKFold(5, shuffle=True, random_state=250)
         smote = SMOTE(random_state=37)
         #smp_pipeline = make_pipeline(smote, classify(**param))
         smp_pipeline = make_pipeline(smote, classifier())
         kfold=0 #fold initialize
 
-        
-        for i in range(0, n_times):
+        #x_train_, x_test_, y_train_, y_test_ = train_test_split(x, outcome_label, test_size=0.2, stratify = outcome_label, random_state=387)
+        x_train_, y_train_ = x, outcome_label
+
+        # cross validation에 따라 train, test split
+        for train_index, test_index in cv.split(x_train_, y_train_):
+            x_train, x_test = x_train_[train_index], x_train_[test_index]
+            y_train, y_test = y_train_[train_index], y_train_[test_index]
             
-            #x_train_, x_test_, y_train_, y_test_ = train_test_split(x, outcome_label, test_size=0.2, stratify = outcome_label, random_state=387)
-            x_train_, y_train_ = x, outcome_label
+            gird_search_clf = GridSearchCV(smp_pipeline, hyperparameter_list, scoring='roc_auc', cv=cv, refit=True)
+            gird_search_clf.fit(x_train, y_train)
 
-            # cross validation에 따라 train, test split
-            for train_index, test_index in cv.split(x_train_, y_train_):
-                print("{} times {} fold:".format(str(i),str(kfold)))
-                x_train, x_test = x_train_[train_index], x_train_[test_index]
-                y_train, y_test = y_train_[train_index], y_train_[test_index]
-                
-                gird_search_clf = GridSearchCV(smp_pipeline, hyperparameter_list, scoring='roc_auc', cv=cv, refit=True)
-                gird_search_clf.fit(x_train, y_train)
+            ## grid search
+            # save grid searched model (pkl로 각 grid search별 best score 저장)
+            with open(args.out_path+'\\{}_{}_{}.pkl'.format(str(classifier.__name__), outcome, str(kfold)), 'wb') as f: 
+                pickle.dump(gird_search_clf, f)
 
-                ## grid search
-                # save grid searched model (pkl로 각 grid search별 best score 저장)
-                with open(args.out_path+'\\{}_{}_{}.pkl'.format(str(classifier.__name__), outcome, str(kfold)), 'wb') as f: 
-                    pickle.dump(gird_search_clf, f)
+            print('GridSearch 최고 점수: ', gird_search_clf.best_score_)
+            print('GridSearch 최적 파라미터: ', gird_search_clf.best_params_)
+    
+            # load best estimator for gridsearched with training dataset
+            best_param_list.append(gird_search_clf.best_params_)
+            clf = gird_search_clf.best_estimator_.steps[1][1]
 
-                print('GridSearch 최고 점수: ', gird_search_clf.best_score_)
-                print('GridSearch 최적 파라미터: ', gird_search_clf.best_params_)
-        
-                # load best estimator for gridsearched with training dataset
-                best_param_list.append(gird_search_clf.best_params_)
-                clf = gird_search_clf.best_estimator_.steps[1][1]
+            pred_prob = clf.predict_proba(x_test)
+            pred = pred_prob.argmax(1)
+            pred_prob = pred_prob[:, 1]
+            
+            ## save fold dataset
+            # save grid searched model (prediction 결과, predicted probability, 실제 label 값(정답), feature(x 값))
+            save_dataset = [pred, pred_prob, y_test.reshape(-1), pd.DataFrame(x_test, columns=feature_name)]
+            with open(args.out_path+'\\{}_{}_{}_dataset.pkl'.format(str(classifier.__name__), outcome, str(kfold)), 'wb') as f: 
+                pickle.dump(save_dataset, f)
 
-                pred_prob = clf.predict_proba(x_test)
-                pred = pred_prob.argmax(1)
-                pred_prob = pred_prob[:, 1]
-                
-                ## save fold dataset
-                # save grid searched model (prediction 결과, predicted probability, 실제 label 값(정답), feature(x 값))
-                save_dataset = [pred, pred_prob, y_test.reshape(-1), pd.DataFrame(x_test, columns=feature_name)]
-                with open(args.out_path+'\\{}_{}_{}_dataset.pkl'.format(str(classifier.__name__), outcome, str(kfold)), 'wb') as f: 
-                    pickle.dump(save_dataset, f)
-
-                pred_list.append(pred)
-                real_list.append(y_test.reshape(-1))
-                prob_list.append(pred_prob)       
-                
-                ## feature importance (logistic regression 제외 나머지 classifier의 feature importance 내장 함수 이용하여 feature importance 저장)
-                feature_importance= clf.feature_importances_ if classifier.__name__ != 'LogisticRegression' else clf.coef_[0]
-                feature_importance_list.append(feature_importance)
-                kfold+=1
+            pred_list.append(pred)
+            real_list.append(y_test.reshape(-1))
+            prob_list.append(pred_prob)
+            
+            ## feature importance (logistic regression 제외 나머지 classifier의 feature importance 내장 함수 이용하여 feature importance 저장)
+            feature_importance= clf.feature_importances_ if classifier.__name__ != 'LogisticRegression' else clf.coef_[0]
+            feature_importance_list.append(feature_importance)
+            kfold+=1
         
         pred_list = np.array(pred_list)
         real_list = np.array(real_list)
         prob_list = np.array(prob_list)
 
-        return pred_list, real_list, prob_list, feature_importance_list, best_param_list 
+        return pred_list, real_list, prob_list, feature_importance_list, best_param_list
     
 
 
@@ -748,7 +875,7 @@ class tree(object):
             
             ## result & roc curve
             mean_accuracy, mean_precision, mean_recall, mean_f1, mean_auc, result = self.mean_perform(real, pred, pred_prob, clf_name[i], outcome)
-            all_result.append(result) 
+            all_result.append(result)
             print('{}_mean_accuracy:'.format(clf_name[i]), mean_accuracy, '{}_mean_auc:'.format(clf_name[i]), mean_auc)
             
             '''
@@ -782,7 +909,7 @@ class tree(object):
 
 
 ## accuracy/ feature importance
-    def fold_perform(self, real: np.ndarray, pred: np.ndarray, prob: np.ndarray, classifier_name: str, outcome: str) -> tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
+    def fold_perform(self, classifier_name: str) -> tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict]:
     
         """
         cross-validation 결과를 저장 + 가장 성능이 좋은 fold, 평균 accuracy, sensitivity, specificity, ppv, npv, auc, fold별 각 성능값을 return하는 함수 
@@ -817,7 +944,12 @@ class tree(object):
         cv_npv = []
         cv_roc = []
         fold = []
-
+        
+        real = self.result[classifier_name].reals
+        pred = self.result[classifier_name].preds
+        prob = self.result[classifier_name].probs
+        outcome = self.outcome
+        
         for k in range(0, real.shape[0]):
             accuracy = accuracy_score(real[k], pred[k])
             recall = recall_score(real[k], pred[k], pos_label=1)
