@@ -5,7 +5,6 @@ import pandas as pd
 import pickle
 import matplotlib.pyplot as plt
 import argparse
-from xml.etree.ElementTree import parse
 from statistics import mean
 import itertools
 
@@ -17,9 +16,9 @@ from sklearn.ensemble import RandomForestClassifier as rf
 
 import seaborn as sns
 
-import scipy.stats
-from sklearn.metrics import roc_curve, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, auc as auc_func
-from sklearn.model_selection import StratifiedKFold, KFold, train_test_split, GridSearchCV
+import scipy.stats 
+from sklearn.metrics import roc_curve, confusion_matrix, accuracy_score, auc as auc_func
+from sklearn.model_selection import StratifiedKFold, GridSearchCV
 from sklearn.decomposition import PCA
 
 from math import sqrt
@@ -27,7 +26,7 @@ from scipy.special import ndtri
 
 from imblearn.over_sampling import SMOTE
 
-from imblearn.pipeline import make_pipeline, Pipeline
+from imblearn.pipeline import make_pipeline
 from lifelines import KaplanMeierFitter as KM
 from lifelines import CoxPHFitter as CPH
 from lifelines.statistics import logrank_test
@@ -35,7 +34,6 @@ from lifelines.statistics import logrank_test
 
 def get_args():
     """인자값들 저장해두는 Namespace"""
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--target', type=str, required=True, choices=['vital','any_cvd'])
     parser.add_argument('--out_path', default='E:\\temp\\15_ahi\\final', type=str)
@@ -43,7 +41,6 @@ def get_args():
     parser.add_argument('--feature_path', default=\
                         'D:\\Hyunji\\Research\\Thesis\\research\\sleep\\data\\SHHS_total_feature_final_hrv.xlsx', type=str)    
     return parser.parse_args()
-
 
 class MyDataset: 
     """data column명, 학습용 data, 실제 정답"""
@@ -59,7 +56,6 @@ class MyTrainResult:
         self.probs: np.ndarray
         self.feature_imporatnces: list
         self.best_params: list
-
 
 class tree(object):
     def __init__(self, args):
@@ -306,7 +302,7 @@ class tree(object):
         tree_result.to_excel(writer, sheet_name = '{}_result'.format(self.outcome))
         tree_feature.to_excel(writer, sheet_name = '{}_feature'.format(self.outcome))
         tree_param.to_excel(writer, sheet_name = '{}_param'.format(self.outcome))
-        writer.save()
+        writer._save()
 
 
     def get_result_param(self, classifier_name: str) -> tuple[dict, list]:
@@ -376,9 +372,9 @@ class tree(object):
         """    
         fold = []
 
-        real = self.result[classifier_name].reals
-        pred = self.result[classifier_name].preds
-        prob = self.result[classifier_name].probs
+        real = self.train_result[classifier_name].reals
+        pred = self.train_result[classifier_name].preds
+        prob = self.train_result[classifier_name].probs
 
         metrics = {
             'accuracy' : [],
@@ -391,9 +387,9 @@ class tree(object):
 
         for k in range(0, real.shape[0]):
             accuracy = accuracy_score(real[k], pred[k])
-            fpr, tpr, thresholds = roc_curve(real[k], prob[k], pos_label=1)
+            fpr, tpr, _ = roc_curve(real[k], prob[k], pos_label=1)
             auc = auc_func(fpr, tpr)
-            se, sp, _, _, ppv, npv, _, _, _ = self.roc_curve_func(pred[k], real[k], prob[k], classifier_name+': '+str(auc))
+            se, sp, _, _, ppv, npv, _, _, _ = self.roc_curve_func(real[k], prob[k], classifier_name+': '+str(auc))
 
             metrics['accuracy'].append(accuracy)
             metrics['se'].append(se)
@@ -431,6 +427,7 @@ class tree(object):
         calculate delong test
         +) delong_pvalue : {clf1_clf2 : delong_pvalue} (저장 필요)
         """
+        args = self.args
         # delong_pvalue 저장하기
         delong_test_result = {} #dict(str, int)
 
@@ -445,7 +442,7 @@ class tree(object):
         ## result save (delong pvalue result를 excel로 저장)
         writer = pd.ExcelWriter(args.out_path + '\\delong_pvalue_result.xlsx')      
         delong_pvalue_result.to_excel(writer)
-        writer.save()
+        writer._save()
 
 ## plotting  (class 바꾸기?)
     def plot_feature_importance(self, feature_importance_category: pd.DataFrame, classifier_name: str):
@@ -457,7 +454,8 @@ class tree(object):
             feature_importance_category:  feature 이름/ feature importance / feature의 종류에 따라 저장한 값 (DataFrame)
             classifier_name:  classifier의 이름 (Str)
         """
-
+        args = self.args
+        
         #Sort the DataFrame in order decreasing feature importance
         fi_top30 = feature_importance_category.sort_values(by=['feature_importance'], ascending=False)[:30]
 
@@ -538,8 +536,9 @@ class tree(object):
         for classifier_name in self.classifier.keys():
             best_clf, best_dataset = self.load_best_classifier_dataset_fold(classifier_name)
 
+        ## 추가 필요
         # plotting
-
+        
         # calculating statistics
 
         # save metrics 
@@ -637,7 +636,7 @@ class tree(object):
         return optimal_threshold, ix, sensitivity_point_estimate, specificity_point_estimate, sensitivity_confidence_interval, specificity_confidence_interval, ppv_estimate, npv_estimate, ppv_confidence_interval, npv_confidence_interval
 
         
-    def roc_curve_func(self, pred: np.ndarray, real: np.ndarray, prob: np.ndarray, figure_legend: str):
+    def roc_curve_func(self, real: np.ndarray, prob: np.ndarray, figure_legend: str):
         """
         roc curve를 plotting함 함수 
         
@@ -666,7 +665,6 @@ class tree(object):
         plt.savefig(figure_legend, format='eps')
 
         return se, sp, se_ci, sp_ci, ppv, npv, ppv_ci, npv_ci,optimal_threshold
-
            
     def compute_midrank(self, x):
         J = np.argsort(x)
@@ -687,7 +685,6 @@ class tree(object):
 
         return T2
 
-
     def compute_midrank_weight(self, x, sample_weight):
         J = np.argsort(x)
         Z = x[J]
@@ -705,7 +702,6 @@ class tree(object):
         T2[J] = T
         return T2
 
-
     def fastDeLong(self, predictions_sorted_transposed, label_1_count, sample_weight):
         if sample_weight is None:
             return self.fastDeLong_no_weights(
@@ -716,7 +712,6 @@ class tree(object):
                 predictions_sorted_transposed,
                 label_1_count,
                 sample_weight)
-
 
     def fastDeLong_weights(self, pred_sorted_transposed, label_1_count, sample_weight):
         # Short variables are named as they are in the paper
@@ -752,7 +747,6 @@ class tree(object):
         delongcov = sx / m + sy / n
         return aucs, delongcov
 
-
     def fastDeLong_no_weights(self, predictions_sorted_transposed, label_1_count):
         # Short variables are named as they are in the paper
         m = label_1_count
@@ -776,12 +770,10 @@ class tree(object):
         delongcov = sx / m + sy / n
         return aucs, delongcov
 
-
     def calc_pvalue(self, aucs, sigma):
         l_aux = np.array([[1, -1]])
         z = np.abs(np.diff(aucs)) / np.sqrt(np.dot(np.dot(l_aux, sigma), l_aux.T))
         return np.log10(2) + scipy.stats.norm.logsf(z, loc=0, scale=1) / np.log(10)
-
 
     def compute_ground_truth_statistics(self, ground_truth, sample_weight):
         assert np.array_equal(np.unique(ground_truth), [0, 1])
@@ -793,7 +785,6 @@ class tree(object):
             ordered_sample_weight = sample_weight[order]
 
         return order, label_1_count, ordered_sample_weight
-
 
     def delong_roc_variance(self, ground_truth, predictions, sample_weight=None):
         ground_truth_stats = self.compute_ground_truth_statistics(
@@ -843,7 +834,7 @@ class tree(object):
 
         # Confidence Interval
         lower_upper_q = np.abs(np.array([0, 1]) - (1 - alpha) / 2)
-        lower_upper_ci = stats.norm.ppf(
+        lower_upper_ci = scipy.stats.norm.ppf(
             lower_upper_q,
             loc=auc,
             scale=auc_std)
