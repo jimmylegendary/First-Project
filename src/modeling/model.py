@@ -13,9 +13,11 @@ from lightgbm import LGBMClassifier as lgb
 from xgboost import XGBClassifier as xgb
 from sklearn.linear_model import LogisticRegression as lr
 from sklearn.ensemble import RandomForestClassifier as rf
+from sklearn.preprocessing import StandardScaler
 
 import seaborn as sns
 
+from scipy import interp
 import scipy.stats 
 from sklearn.metrics import (
     roc_curve, 
@@ -41,10 +43,11 @@ from lifelines.statistics import logrank_test
 def get_args():
     """인자값들 저장해두는 Namespace"""
     parser = argparse.ArgumentParser()
-    parser.add_argument('--target', type=str, required=True, choices = ['vital','any_cvd'])
-    parser.add_argument('--feature_path', default='dataset\\data.xlsx', type=str)    
+    parser.add_argument('--target', default = 'vital', type=str) # required=True, choices = ['vital','any_cvd']
+    parser.add_argument('--feature_path', default='src\dataset\data.xlsx', type=str)
     parser.add_argument('--out_path', default='output\\10', type=str)
-    
+    parser.add_argument('--plot_feature_path', default='src\dataset\plot_data.xlsx', type=str)    
+
     return parser.parse_args()
 
 class MyDataset: 
@@ -54,7 +57,7 @@ class MyDataset:
     y: np.ndarray
 
 class MyTrainResult:
-    """예측결과, 실제 정답, 예측 확률값, feature importance 결과, gridsearch 결과 best parameter 값 --저장 필요"""
+    """예측결과, 실제 정답, 예측 확률값, feature importance 결과, gridsearch 결과 best parameter 값"""
     def __init__(self):
         self.preds: np.ndarray
         self.reals: np.ndarray
@@ -66,7 +69,9 @@ class tree(object):
     def __init__(self, args):
         self.args = args
         self.outcome = args.target
-        self.dataset: MyDataset
+        
+        self.dataset = MyDataset  #선언이 안됨
+        
 
         self.target_func = {
             "vital": self.select_mortality_ahi_subject,
@@ -74,26 +79,28 @@ class tree(object):
         }
 
         self.classifier = {
-            """
-            classifier_name(str) : classifier(class)
-            """ 
-            "xgb": xgb,
-            "lgb": lgb,
-            "catb": catb,
-            "rf": rf,
-            "lr": lr
+            "xgb": xgb(),
+            "lgb": lgb(),
+            "catb": catb(),
+            "rf": rf(),
+            "lr": lr()
         }
+
+        self.best_fold = {
+            "xgb": int,
+            "lgb": int,
+            "catb": int,
+            "rf":int,
+            "lr": int        
+            }
 
         self.train_result : dict[str, MyTrainResult] = {}
 
-        self.hyperparmeters = {
-            """
-            classifier_name(str) : classifier_hyperparameter list (dict)
-            """
+        self.hyperparameters = {
             
             "xgb" : {
-                'xgbclassifier__max_depth': [2,3,4,5,6,7,8,9], 
-                'xgbclassifier__n_estimators': [100,200,300,400,500],
+                'xgbclassifier__max_depth': [2,3,4,5,6,7,8,9],
+                'xgbclassifier__n_estimators': [100, 200, 300, 400, 500],
                 'xgbclassifier__learning_rate': [0.01],
                 'xgbclassifier__min_child_weight' : [1, 3, 5],
                 'xgbclassifier__objective': ['binary:logistic'],
@@ -152,7 +159,7 @@ class tree(object):
         
     
     def set_outdir(self, root_dir, classifier_name):
-        """ out directory 만들기
+        """ out directory 만들기 (prepare)
 
         Args:
             root_dir (str): output root directory
@@ -163,25 +170,18 @@ class tree(object):
             dir_name = os.path.join(root_dir, clf_name)
             os.makedirs(dir_name, exist_ok=True)
             dir_names.append(dir_name)
-        
     
     def get_outpath(self, file_name, classifier_name =""):
-        """ 최종 output path 받아오기
+        """ 최종 output path 받아오기 (prepare)
 
         Args:
             file_name (str): 저장 하고자 하는 file 이름의 앞부분
             classifier_name (str, optional): classifier name (e.g. xgboost, lgbm, catboost). Defaults to "".
-
-        Returns:
-            _type_: 최종 output path 
         """
         return os.path.join(self.root_outdir, classifier_name, file_name)
-                
-        
         
     def extract_features(self, total_data: pd.DataFrame):
-        """
-        Target outcome에 따라 grouping된 feature 값을 반환하는 함수
+        """ Target outcome에 따라 grouping된 feature 값을 반환하는 함수 (dataset)
         + grouping_data 에 concated_group 결과 저장
         + outcome에 target outcome 저장
 
@@ -195,20 +195,19 @@ class tree(object):
         self.grouping_data = concated_group
 
     def prepare_dataset(self):                
-        """
-        x, y를 fold 별 train, test로 나누어 dataset을 준비하는 함수
+        """ x, y를 fold 별 train, test로 나누어 dataset을 준비하는 함수 (dataset)
         + cv = cross-validation 방법 저장
         + folded_dataset = fold별 train, test dataset 저장
         + dataset.featuren_name = feature column 이름 저장
         + dataset.x = 학습에 사용될 feature (drop_list 제외된 버전)
         + dataset.y = 결과지로 사용될 outcome 결과
         """   
-        cv = StratifiedKFold(5, shuffle = False, random_state=250)
+        cv = StratifiedKFold(5, shuffle = True, random_state = 10)
         self.cv = cv
         self.folded_dataset = []
         
-        # dadtaset에 feature_name, x, y 저장
-        self.dataset.feature_name = self.grouping_data.drop(self.drop_list, axis = 1).columns.to_list()
+        # dadtaset에 feature_name, x, y 저장 ->'tree' object has no attribute 'dataset' error
+        self.dataset.feature_name = self.grouping_data.drop(self.drop_list, axis = 1).columns.to_list() 
         self.dataset.x = self.grouping_data.drop(self.drop_list, axis = 1).to_numpy()
         self.dataset.y = self.grouping_data[f'{self.outcome}'].to_numpy()
 
@@ -231,14 +230,25 @@ class tree(object):
             }
             # fold별 train, test data 저장
             self.folded_dataset.append(dataset)
-               
+    
+    ## save
+    def save_pkl(self, path, data):
+        """
+        path에 data를 pkl로 저장
+        """
+        
+        with open(path, 'wb') as f:
+                pickle.dump(data, f)
+
     ## train               
     def train(self, classifier_name: str):
-        """
-        학습 모델 및 결과 데이터셋 저장
+        """학습 모델 및 결과 데이터셋 저장 (train)
         + self.result[classifier_name] = result
+        
+        Args:
+            classifier_name (str, optional): classifier name (e.g. xgboost, lgbm, catboost). Defaults to "".
+
         """
-        args = self.args
         train_result = MyTrainResult()
 
         # initialize output (return값 list로 initialize)
@@ -248,8 +258,8 @@ class tree(object):
         
         ## kfold prediction (5 stratified fold cross-validation 수행 + smote를 통해 data augmentation = make_pipeline 함수 사용)
         smote = SMOTE(random_state=37)
-        smp_pipeline = make_pipeline(smote, self.classifier[classifier_name])
-        hyperparameter = self.hyperparmeters[classifier_name]
+        smp_pipeline = make_pipeline(StandardScaler(), smote, self.classifier[classifier_name])
+        hyperparameter = self.hyperparameters[classifier_name]
         
         # prepare_dataset에서 저장한 train, test dataset 불러오기
         for kfold, dataset in enumerate(self.folded_dataset):
@@ -265,10 +275,6 @@ class tree(object):
                 smp_pipeline, hyperparameter, scoring='roc_auc', cv=self.cv, refit=True
             )
             gird_search_clf.fit(x_train, y_train)
-
-            # grid searched model 저장 (pkl로 각 grid search 학습결과 저장)
-            with open(self.get_outpath(f"{str(kfold)}.pkl", classifier_name), 'wb') as f:
-                pickle.dump(gird_search_clf, f)
             
             # grid search 결과 best parameter list에 저장
             best_param_list.append(gird_search_clf.best_params_)
@@ -276,7 +282,7 @@ class tree(object):
             print('GridSearch 최적 파라미터: ', gird_search_clf.best_params_)
 
             # gird searched model 중 가장 best estimator의 학습 결과 저장
-            clf = gird_search_clf.best_estimator_.steps[1][1]
+            clf = gird_search_clf.best_estimator_.steps[2][1]
             pred_prob = clf.predict_proba(x_test)
             pred = pred_prob.argmax(1)
             pred_prob = pred_prob[:, 1]
@@ -285,7 +291,10 @@ class tree(object):
             real_list.append(y_test.reshape(-1))
             prob_list.append(pred_prob)
                    
-            ## save fold dataset
+            ## save classifier & fold dataset
+            # grid searched model 저장 (pkl로 각 grid search 학습결과 저장)
+            self.save_pkl(self.get_outpath(f"{str(kfold)}.pkl", classifier_name), gird_search_clf)
+            
             # save grid searched model (prediction 결과, predicted probability, 실제 label 값(정답), feature(x 값))
             save_dataset = [
                 pred,
@@ -293,8 +302,7 @@ class tree(object):
                 y_test.reshape(-1), 
                 pd.DataFrame(x_test, columns = self.dataset.feature_name)
                 ]
-            with open(self.get_outpath(f"{str(kfold)}_dataset.pkl", classifier_name), 'wb') as f: 
-                pickle.dump(save_dataset, f)
+            self.save_pkl(self.get_outpath(f"{str(kfold)}_dataset.pkl", classifier_name), save_dataset)
             
             ## feature importance (logistic regression 제외 나머지 classifier의 feature importance 내장 함수 이용하여 feature importance 저장)
             feature_importance= (
@@ -318,9 +326,9 @@ class tree(object):
             self.train(classifier_name)
 
 
-    ## dataset 저장되어 있으면 독립적으로 사용 가능
+    ## SAVE
     def save_performance_result(self):
-        """
+        """ (result save)
         Target outcome에 따라 classifier별 분류 성능을 excel로 저장하는 
 
         classifier 종류:
@@ -334,18 +342,16 @@ class tree(object):
         1) classifier별 classification result
         2) classifier별 feature importnace
         3) classifier별 hyperparameter
-        """   
-        args = self.args
-       
+        """          
         ## classifier result (classifier 별로 clasification result, feautre importnace, hyperparmeter 저장)
         clf_result = {}
         clf_feature = pd.DataFrame()
         clf_param = []
 
         for classifier_name in self.classifier.keys():
-            result, best_param = self.get_result_param(classifier_name)
+            result = self.get_perform_metric(classifier_name)
+            best_param = self.get_best_param(classifier_name)
             feature = self.get_feature_importance(classifier_name)
-            self.plot_feature_importance(feature, classifier_name)
 
             clf_result.update(result)
             clf_feature = pd.concat([clf_feature, feature], axis=1)
@@ -367,39 +373,35 @@ class tree(object):
         writer.close()
 
 
-    def get_result_param(self, classifier_name: str) -> tuple[dict, list]:
-        """
+    ## TRAIN 결과 계산 함수
+    def get_best_param(self, classifier_name: str) -> list:
+        """ (cal)
         1)perform_metric: performance (fold별 결과, 평균값), 2) best parameter 결과 
 
         Args:
             classifier_name: xgb or catb or lgb or rf or lr (str)
            
         Returns:
-            performance_result: fold별 성능값 (dict)
             clf.best_params: hyperparmeter 결과 (list)
         """
-        args = self.args
 
         ## save performance result with cross-validation : cross-validation 결과 저장        
-        best_fold, performance_result = self.perform_metric(classifier_name)
+        best_fold = self.best_fold[classifier_name]
         
-        '''분리 고민해보기'''
         ## load and save best model: 성능 가장 좋았던 fold 확인해서 classifier 불러오기 & best_model_ 로 따로 저장해주기
-        with open(args.out_path+f'\\{classifier_name}_{self.outcome}_{str(best_fold)}.pkl', 'rb') as f:
+        with open(self.get_outpath(f"{str(best_fold)}.pkl", classifier_name), 'rb') as f:
             grid_search_clf = pickle.load(f)
         clf = grid_search_clf
+        
+        self.save_pkl(self.get_outpath(f"best_model_fold{str(best_fold)}.pkl", classifier_name), clf)
 
-        with open(
-            self.get_outpath(f"best_model_fold{str(best_fold)}.pkl"), "wb"
-            ) as f: 
-            pickle.dump(clf, f) 
-
-        return performance_result, clf.best_params
+        return clf.best_params
     
 
     def get_feature_importance(self, classifier_name: str) -> pd.DataFrame:
-        """
+        """ (cal)
         get mean feature importance with categorical index
+        +) feature importance category
         Args:
             classifier_name: xgb or catb or lgb or rf or lr (str)
            
@@ -429,18 +431,20 @@ class tree(object):
             }
         feature_importance_category = pd.DataFrame(data)
 
+        self.feature_importance_cat[classifier_name] = feature_importance_category
+
         return feature_importance_category
 
-
-    def perform_metric(self, classifier_name: str) -> tuple[int, dict]:
-        """
+    def get_perform_metric(self, classifier_name: str) :
+        """(metric calculation)
         cross-validation 결과를 저장 + 가장 성능이 좋은 fold, 평균 accuracy, sensitivity, specificity, ppv, npv, auc, fold별 각 성능값을 return하는 함수 
+        +) best_fold: 가장 성능이 좋은 fold (int)
+        +) roc_plot_val: roc curve plotting용 fpr, tpr값 저장
 
         Args:
             classifier_name: classifier 이름 (str)
 
         Returns:
-            best_fold: 가장 성능이 좋은 fold (int)
             result: fold별 성능값 (dict)
         """
         fold = []
@@ -456,19 +460,19 @@ class tree(object):
             'sp' : [],
             'ppv' : [],
             'npv' : [] 
-            
         }
         
-        
-        '''이부분부터 나누기'''
+        # roc curve plotting용 변수 저장
+        mean_fpr = np.linspace(0,1,100)
+        tprs = []
+        self.roc_plot_val = {}
+
         for k in range(0, real.shape[0]):
             accuracy = accuracy_score(real[k], pred[k])
             fpr, tpr, _ = roc_curve(real[k], prob[k], pos_label=1)
+            tprs.append(interp(mean_fpr, fpr, tpr))
             auc = auc_func(fpr, tpr)
             _, _, se, sp, _, _, ppv, npv, _, _ = self.find_optimal_cutoff(real[k], prob[k])
-            
-            ## roc curve plotting
-            self.plot_roc_curve(fpr, tpr, classifier_name, auc)
                         
             metrics['accuracy'].append(accuracy)
             metrics['se'].append(se)
@@ -479,6 +483,11 @@ class tree(object):
 
             fold.append(k)
 
+        # 평균값 계산
+        # roc curve plotting용 저장
+        mean_tpr = np.mean(tprs, axis = 0)
+        self.roc_plot_val[classifier_name] = [mean_fpr, mean_tpr]
+
         for k, v in metrics.items():
             mean_val = np.round(np.mean(v), 4)
             v.append(mean_val)
@@ -486,7 +495,8 @@ class tree(object):
         
         # roc 기준 best fold 저장
         best_fold = metrics['roc'].index(max(metrics['roc']))
-
+        self.best_fold[classifier_name] = best_fold
+        
         performance_result = {
             f"accuracy_{classifier_name}": metrics['accuracy'], 
             f"fold_{classifier_name}":  fold, 
@@ -496,13 +506,13 @@ class tree(object):
             f"ppv_{classifier_name}": metrics['ppv'], 
             f"npv_{classifier_name}": metrics['npv'] 
             }
-        plt.clf()
 
-        return best_fold, performance_result  
+        return performance_result  
 
-## calculate delong test
+
+    ## 추가 통계
     def cal_delong_test(self):
-        """
+        """ (statistics)
         calculate delong test
         +) delong_pvalue : {clf1_clf2 : delong_pvalue} (저장 필요)
         """
@@ -523,18 +533,28 @@ class tree(object):
         delong_pvalue_result.to_excel(writer)
         writer.close()
 
-## plotting  (class 바꾸기?)
-    def plot_feature_importance(self, feature_importance_category: pd.DataFrame, classifier_name: str):
+
+## plotting  
+    def plot_classifier(self):
+        """(plotting)
+        classifier별로 plotting하고 싶은 함수 부르는 곳
         """
+
+        for clf_name in self.classifier.keys():
+            self.plot_feature_importance(clf_name)
+            self.plot_roc_curve(clf_name)
+
+    def plot_feature_importance(self, classifier_name: str):
+        """(plotting)
         feature importance 값을 feature의 종류(demographic, sleep feature, HRV)에 따라 
         1) bar plotting하고
 
         Args:
-            feature_importance_category:  feature 이름/ feature importance / feature의 종류에 따라 저장한 값 (DataFrame)
             classifier_name:  classifier의 이름 (Str)
         """
-        args = self.args
-        
+        # get the feature importance category
+        feature_importance_category = self.get_feature_importance(classifier_name) 
+
         #Sort the DataFrame in order decreasing feature importance
         fi_top30 = feature_importance_category.sort_values(by=['feature_importance'], ascending=False)[:30]
 
@@ -550,20 +570,45 @@ class tree(object):
         plt.ylabel('FEATURE NAMES')
 
         ## plot & save bar graph of feature importance : fold의 평균 feature importance 값 plotting
-        plt.savefig(args.out_path + f'//{self.outcome}_{classifier_name}', format = 'eps' )
+        plt.savefig(self.get_outpath("feature_importance.eps", classifier_name))
         plt.close()     
 
+    
+    def plot_roc_curve(self, classifier_name: str):
+        """(plotting)
+        roc curve를 plotting함 함수 
+        
+        Args:
+            real: 실제 outcome label =정답 (ndarray)
+            prob: predicted probability =예측한 확률값 (ndarray)
+            classifier_name: classifier name (str)
 
-    def km_plot(self):
         """
+
+        fpr =  self.roc_plot_val[classifier_name][0]
+        tpr = self.roc_plot_val[classifier_name][1]
+            
+        plt.clf()
+        figure_legend = f'{classifier_name}'
+        plt.plot(fpr, tpr, label = figure_legend)
+        plt.plot([0, 1], [0, 1],'r--')
+        plt.xlim([0, 1])
+        plt.ylim([0, 1])
+        plt.xlabel('FPR')
+        plt.ylabel('TPR')
+        plt.title('ROC curve')
+        plt.savefig(self.get_filename("roc_curve_figure.svg", classifier_name))
+
+           
+    def plot_km(self):
+        """ (plotting)
         kaplan-meier estimates by high and low risk figure plotting함 함수 
         """ 
         args = self.args
-        outcome = self.outcome
         
         ## km plot (특정 dataset - probability 결과)
-        dataset = pd.read_excel('D:\\Hyunji\\Research\\Thesis\\research\\sleep\\result\\SHHS_mortality_prediction_in_ahi_patient.xlsx',sheet_name='survival_15')   
-        risk_ix = dataset['risk_group']==1
+        dataset = pd.read_excel(args.plot_feature_path, sheet_name='survival_10')   
+        risk_ix = dataset['risk_group'] == 1
 
         ax = plt.subplot(111)
 
@@ -586,11 +631,11 @@ class tree(object):
         plt.title('Kaplan-Meier estimates by High and Low risk')
         plt.ylabel('Survival probability (%)')
         plt.xlabel('Time (Days)')
-        plt.savefig(args.save_path + f'\\{outcome}_km_plot_10.eps', format='eps')
+        plt.savefig(self.get_outpath("km_plot_10.eps"))
         plt.clf()
 
 
-    def cox_func(self):
+    def plot_cox_func(self):
         """
         Cox Proportional Hazard model의 figure plotting함 함수 
         """   
@@ -598,7 +643,7 @@ class tree(object):
         outcome = self.outcome
         
         ## km plot (특정 dataset)
-        dataset = pd.read_excel('D:\\Hyunji\\Research\\Thesis\\research\\sleep\\result\\SHHS_mortality_prediction_in_ahi_patient.xlsx',sheet_name='survival_10')   
+        dataset = pd.read_excel(args.plot_feature_path, sheet_name='survival_10')   
         data = dataset[['vital_date','vital','age','hypertension','diabetes','risk_group']]
         
         plt.figure(figsize = (8, 4))
@@ -608,12 +653,16 @@ class tree(object):
         cph.plot()
 
         ## Create an estimate
-        plt.savefig(args.save_path+ f'\\{outcome}_cox_HR_10_3.eps', format='eps')
+        plt.savefig(self.get_outpath("cox_HR_10_3.eps"))
         plt.clf()
+    
 
 
 ## load final result    
     def load_and_save_result(self):
+        """ (save result)
+        load하고 save하는 곳
+        """
         for classifier_name in self.classifier.keys():
             best_clf, best_dataset = self.load_best_classifier_dataset_fold(classifier_name)
 
@@ -624,8 +673,8 @@ class tree(object):
 
         # save metrics 
 
-    def load_best_classifier_dataset_fold(self, classifier_name: str) -> tuple[object, dict]:
-        """
+    def load_best_classifier_dataset_fold(self, classifier_name: str) :
+        """ (load)
         저장된 best model pkl값을 읽어오는 함수 
 
         Args:
@@ -639,11 +688,14 @@ class tree(object):
             self.get_filename('best_model_fold*.pkl'))[0]
         best_fold = int(clf_file.split('.')[0][-1])
         
+        # save best fold
+        self.best_fold[classifier_name] = best_fold
+
         # load best classifier 
         with open(clf_file, 'rb') as f:
             best_clf = pickle.load(f)
 
-        with open(args.out_path+f'\\{classifier_name}_{self.outcome}_{str(best_fold)}_dataset.pkl', 'rb') as f: 
+        with open(self.get_outpath(f"{str(best_fold)}_dataset.pkl", classifier_name), 'rb') as f: 
             #best_dataset : [pred, pred_prob, y_test.reshape(-1), pd.DataFrame(x_test, columns = self.dataset.feature_name)]
             load_dataset = pickle.load(f)
         
@@ -718,32 +770,6 @@ class tree(object):
         return optimal_threshold, ix, sensitivity_point_estimate, specificity_point_estimate, sensitivity_confidence_interval, specificity_confidence_interval, ppv_estimate, npv_estimate, ppv_confidence_interval, npv_confidence_interval
 
         
-    def plot_roc_curve(self, fpr: np.ndarray, tpr: np.ndarray, classifier_name: str, auc: float):
-        """
-        roc curve를 plotting함 함수 
-        
-        Args:
-            pred: predicted result =예측 결과 (ndarray)
-            real: 실제 outcome label =정답 (ndarray)
-            prob: predicted probability =예측한 확률값 (ndarray)
-            save_file: target outcome (str)
-
-        Returns:
-           sensitivity, specificity, ppv, npv, ppv_ci, npv_ci, optimal_threshold 값 ()
-            
-        """            
-        plt.clf()
-        figure_legend = f'{classifier_name}: {auc}'
-        plt.plot(fpr, tpr, label = figure_legend)
-        plt.plot([0, 1], [0, 1],'r--')
-        plt.xlim([0, 1])
-        plt.ylim([0, 1])
-        plt.xlabel('FPR')
-        plt.ylabel('TPR')
-        plt.title('ROC curve')
-        plt.savefig(self.get_filename("roc_curve_figure.svg", classifier_name))
-
-           
     def compute_midrank(self, x):
         J = np.argsort(x)
         Z = x[J]
@@ -922,9 +948,8 @@ class tree(object):
         return auc, auc_var, lower_upper_ci
 
 ## select target subjects (데이터 전처리)        
-    def select_mortality_ahi_subject(self, total_data: pd.DataFrame) -> tuple[pd. DataFrame,pd.DataFrame]:
-
-        """
+    def select_mortality_ahi_subject(self, total_data: pd.DataFrame):
+        """ (dataset)
         전체 feature data를 alive, deceased로 grouping하는 함수
 
         ahi 값이 5 이상인 data 중 아래 기준에 따라 grouping
@@ -943,19 +968,18 @@ class tree(object):
         df_ahi: pd.DataFrame = total_data[total_data['ahi']>=5].reset_index(drop=True)
         
         ## select vital ==0 or vital ==1 subject
-        alive: pd.DataFrame = df_ahi[df_ahi['vital'] == 1 or (df_ahi['vital'] == 0 and df_ahi['censdate'] > 365*15)].reset_index(drop=True)
-        alive[:, 'vital'] = 0
-        deceased: pd.DataFrame = df_ahi[df_ahi['vital'] == 0 and df_ahi['censdate'] <= 365*15].reset_index(drop=True)
-        deceased[:, 'vital'] = 1
+        alive: pd.DataFrame = df_ahi[df_ahi['vital'] == 1 | ((df_ahi['vital'] == 0) & (df_ahi['censdate'] > 365*15))].reset_index(drop=True)
+        alive['vital'] = 0
+        deceased: pd.DataFrame = df_ahi[(df_ahi['vital'] == 0) & (df_ahi['censdate'] <= 365*15)].reset_index(drop=True)
+        deceased['vital'] = 1
         
         print('alive:', len(alive), '\n deceased:', len(deceased))
 
         return alive, deceased
 
 
-    def select_cvd_ahi_subject(self, total_data: pd.DataFrame) -> tuple[pd.DataFrame,pd.DataFrame]:
-    
-        """
+    def select_cvd_ahi_subject(self, total_data: pd.DataFrame):
+        """(dataset)
         전체 feature data를 non_cvd, any_cvd로 grouping하는 함수
 
         ahi 값이 5 이상이면서, pre_cvd 값이 0인 data 중 아래 기준에 따라 grouping
@@ -979,7 +1003,7 @@ class tree(object):
         ## select non_cvd & any_cvd subject
         non_cvd: pd.DataFrame = df_pre_cvd[df_pre_cvd['any_cvd']==0].reset_index(drop=True)
 
-        any_cvd: pd.DataFrame = df_pre_cvd[df_pre_cvd['any_cvd']!=0 and df_pre_cvd['cvd_date']!=0].reset_index(drop=True)
+        any_cvd: pd.DataFrame = df_pre_cvd[df_pre_cvd['any_cvd']!=0 & df_pre_cvd['cvd_date']!=0].reset_index(drop=True)
         any_cvd[:,'any_cvd'] = 1
 
         print('any_cvd:', len(any_cvd), '\n non_cvd:', len(non_cvd))
@@ -989,8 +1013,7 @@ class tree(object):
 
 if __name__ == '__main__':
     args = get_args()
-    path = args.feature_path
-    total_feature = pd.read_excel(path)
+    total_feature = pd.read_excel(args.feature_path)
     tree_shhs= tree(args)
 
     # data prepare
@@ -1000,13 +1023,13 @@ if __name__ == '__main__':
     # train and save model
     tree_shhs.classifier_train()
     tree_shhs.save_performance_result()
-    tree_shhs.cal_delong_test()
-  
-    # 결과만 뽑는 경우 (class 달라도 될듯)
-    tree_shhs.load_and_save_result()
 
     # 통계 + plotting (독립적으로 실행 가능)
-    tree_shhs.km_plot()
-    tree_shhs.cox_func()
+    tree_shhs.cal_delong_test()
+    #tree_shhs.plot_classifier()
+    #tree_shhs.plot_km()
+    #tree_shhs.plot_cox_func()
   
+    # 결과만 뽑는 경우 (class 달라도 될듯)
+    #tree_shhs.load_and_save_result()
     
