@@ -45,7 +45,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--target', default = 'vital', type=str) # required=True, choices = ['vital','any_cvd']
     parser.add_argument('--feature_path', default='src\dataset\data.xlsx', type=str)
-    parser.add_argument('--out_path', default='output\\10', type=str)
+    parser.add_argument('--out_path', default='output\\15', type=str)
     parser.add_argument('--plot_feature_path', default='src\dataset\plot_data.xlsx', type=str)    
 
     return parser.parse_args()
@@ -94,12 +94,14 @@ class tree(object):
             "lr": int        
             }
 
+        self.feature_importance_cat = {}
+
         self.train_result : dict[str, MyTrainResult] = {}
 
         self.hyperparameters = {
             
             "xgb" : {
-                'xgbclassifier__max_depth': [2,3,4,5,6,7,8,9],
+                'xgbclassifier__max_depth': [3,5,7,9],
                 'xgbclassifier__n_estimators': [100, 200, 300, 400, 500],
                 'xgbclassifier__learning_rate': [0.01],
                 'xgbclassifier__min_child_weight' : [1, 3, 5],
@@ -108,23 +110,24 @@ class tree(object):
                 'xgbclassifier__random_state':[22]
                 },
             "lgb" : {
-                'lgbmclassifier__max_depth': [2,3,4,5,6,7,8,9],
+                'lgbmclassifier__max_depth': [2,4,6,8],
                 'lgbmclassifier__n_estimators': [100,200,300,400,500],
                 'lgbmclassifier__learning_rate': [0.01],
                 'lgbmclassifier__min_data_in_leaf': [10, 20, 30, 40, 50],            
                 'lgbmclassifier__objective': ['binary'],
                 'lgbmclassifier__random_state':[22]        
                 },
+            
             "catb" : {
                 'catboostclassifier__iterations': [100,200,300,400,500],
-                'catboostclassifier__depth': [2,3,4,5,6,7,8,9],
+                'catboostclassifier__depth': [3,5,7,9],
                 'catboostclassifier__learning_rate': [0.01],
-                'catboostclassifier__l2_leaf_rerg': [3,5,7],
+                'catboostclassifier__l2_leaf_reg': [3,5,7],
                 'catboostclassifier__loss_function': ['Logloss'],
                 'catboostclassifier__random_state':[22]
                 },
             "rf": {
-                'randomforestclassifier__max_depth': [2,3,4,5,6,7,8,9],
+                'randomforestclassifier__max_depth': [2,4,6,8],
                 'randomforestclassifier__min_samples_leaf': [1,5,10,20],
                 'randomforestclassifier__n_estimators': [100,200,300,400,500],
                 'randomforestclassifier__random_state':[22]
@@ -148,7 +151,8 @@ class tree(object):
             'censdate',
             'cvd_dthdt',
             'cvd_vital',
-            'cvd_date'
+            'cvd_date',
+            'waso_c'
             ]
 
         self.root_outdir = os.path.join(args.out_path, self.outcome)
@@ -157,9 +161,10 @@ class tree(object):
             classifier_name = self.classifier.keys()
             )
         
-    
+
+    ## data save 지정
     def set_outdir(self, root_dir, classifier_name):
-        """ out directory 만들기 (prepare)
+        """ out directory 만들기 (dataset)
 
         Args:
             root_dir (str): output root directory
@@ -172,14 +177,24 @@ class tree(object):
             dir_names.append(dir_name)
     
     def get_outpath(self, file_name, classifier_name =""):
-        """ 최종 output path 받아오기 (prepare)
+        """ 최종 output path 받아오기 (dataset)
 
         Args:
             file_name (str): 저장 하고자 하는 file 이름의 앞부분
             classifier_name (str, optional): classifier name (e.g. xgboost, lgbm, catboost). Defaults to "".
         """
         return os.path.join(self.root_outdir, classifier_name, file_name)
+     
+    def save_pkl(self, path, data):
+        """
+        path에 data를 pkl로 저장
+        """
         
+        with open(path, 'wb') as f:
+                pickle.dump(data, f)
+
+
+    ## data preparation
     def extract_features(self, total_data: pd.DataFrame):
         """ Target outcome에 따라 grouping된 feature 값을 반환하는 함수 (dataset)
         + grouping_data 에 concated_group 결과 저장
@@ -230,15 +245,68 @@ class tree(object):
             }
             # fold별 train, test data 저장
             self.folded_dataset.append(dataset)
-    
-    ## save
-    def save_pkl(self, path, data):
-        """
-        path에 data를 pkl로 저장
-        """
+
+    ## select target subjects (데이터 전처리)        
+    def select_mortality_ahi_subject(self, total_data: pd.DataFrame):
+        """ (dataset)
+        전체 feature data를 alive, deceased로 grouping하는 함수
+
+        ahi 값이 5 이상인 data 중 아래 기준에 따라 grouping
+        1) alive: vital(생존) 값이 1 이거나 vital 값이 0이면서 censdate(사망날짜)가 365*15 초과 
+        2) deceased: vital 값이 0이면서 censdate가 365*15 이하
         
-        with open(path, 'wb') as f:
-                pickle.dump(data, f)
+        Args:
+            total_data: 전체 feature data (DataFrame) 
+
+        Returns:
+            alive: 1번 조건을 만족하는 feature (DataFrame)
+            decease: 2번 조건을 만족하는 feature (DataFrame)
+        """
+
+        ## including ahi >= 5 
+        df_ahi: pd.DataFrame = total_data[total_data['ahi']>=5].reset_index(drop=True)
+        
+        ## select vital ==0 or vital ==1 subject
+        alive: pd.DataFrame = df_ahi[df_ahi['vital'] == 1 | ((df_ahi['vital'] == 0) & (df_ahi['censdate'] > 365*15))].reset_index(drop=True)
+        alive['vital'] = 1
+        deceased: pd.DataFrame = df_ahi[(df_ahi['vital'] == 0) & (df_ahi['censdate'] <= 365*15)].reset_index(drop=True)
+        deceased['vital'] = 0
+        
+        print('alive:', len(alive), '\n deceased:', len(deceased))
+
+        return alive, deceased
+
+    def select_cvd_ahi_subject(self, total_data: pd.DataFrame):
+        """(dataset)
+        전체 feature data를 non_cvd, any_cvd로 grouping하는 함수
+
+        ahi 값이 5 이상이면서, pre_cvd 값이 0인 data 중 아래 기준에 따라 grouping
+        1) non_cvd: any_cvd(심혈관 질환 유무) 값이 0 
+        2) any_Cvd: any_cvd 값이 0이 아님
+        
+        Args:
+            total_data: 전체 feature data (DataFrame) 
+
+        Returns:
+            non_cvd: 1번 조건을 만족하는 feature (DataFrame)
+            any_cvd: 2번 조건을 만족하는 feature (DataFrame)
+        """
+   
+        ## including ahi >= 5 
+        df_ahi: pd.DataFrame = total_data[total_data['ahi']>=5].reset_index(drop=True)
+
+        ## excluding pre-cvd 
+        df_pre_cvd: pd.DataFrame = df_ahi[df_ahi['pre_cvd']==0].reset_index(drop=True)
+
+        ## select non_cvd & any_cvd subject
+        non_cvd: pd.DataFrame = df_pre_cvd[df_pre_cvd['any_cvd']==0].reset_index(drop=True)
+
+        any_cvd: pd.DataFrame = df_pre_cvd[df_pre_cvd['any_cvd']!=0 & df_pre_cvd['cvd_date']!=0].reset_index(drop=True)
+        any_cvd[:,'any_cvd'] = 1
+
+        print('any_cvd:', len(any_cvd), '\n non_cvd:', len(non_cvd))
+        return non_cvd, any_cvd
+
 
     ## train               
     def train(self, classifier_name: str):
@@ -255,11 +323,11 @@ class tree(object):
         pred_list, real_list, prob_list = [], [], []
         feature_importance_list = []
         best_param_list = []
+        hyperparameter = self.hyperparameters[classifier_name]
         
         ## kfold prediction (5 stratified fold cross-validation 수행 + smote를 통해 data augmentation = make_pipeline 함수 사용)
         smote = SMOTE(random_state=37)
         smp_pipeline = make_pipeline(StandardScaler(), smote, self.classifier[classifier_name])
-        hyperparameter = self.hyperparameters[classifier_name]
         
         # prepare_dataset에서 저장한 train, test dataset 불러오기
         for kfold, dataset in enumerate(self.folded_dataset):
@@ -290,10 +358,16 @@ class tree(object):
             pred_list.append(pred)
             real_list.append(y_test.reshape(-1))
             prob_list.append(pred_prob)
-                   
+
+            ## feature importance (logistic regression 제외 나머지 classifier의 feature importance 내장 함수 이용하여 feature importance 저장)
+            feature_importance= (
+            clf.feature_importances_ if classifier_name != 'lr' else clf.coef_[0]
+            )
+            feature_importance_list.append(feature_importance)
+                               
             ## save classifier & fold dataset
             # grid searched model 저장 (pkl로 각 grid search 학습결과 저장)
-            self.save_pkl(self.get_outpath(f"{str(kfold)}.pkl", classifier_name), gird_search_clf)
+            self.save_pkl(self.get_outpath(f"{str(kfold)}_classifier.pkl", classifier_name), gird_search_clf)
             
             # save grid searched model (prediction 결과, predicted probability, 실제 label 값(정답), feature(x 값))
             save_dataset = [
@@ -304,12 +378,6 @@ class tree(object):
                 ]
             self.save_pkl(self.get_outpath(f"{str(kfold)}_dataset.pkl", classifier_name), save_dataset)
             
-            ## feature importance (logistic regression 제외 나머지 classifier의 feature importance 내장 함수 이용하여 feature importance 저장)
-            feature_importance= (
-            clf.feature_importances_ if classifier_name != 'lr' else clf.coef_[0]
-            )
-            feature_importance_list.append(feature_importance)
-
         train_result.preds = np.array(pred_list)
         train_result.reals = np.array(real_list)
         train_result.probs = np.array(prob_list)
@@ -317,18 +385,20 @@ class tree(object):
         train_result.best_params = best_param_list
         
         self.train_result[classifier_name] = train_result
+        self.save_pkl(self.get_outpath("train_result.pkl"), train_result)
+
 
     def classifier_train(self):
         """
-        Target outcome에 따라 classifier별 train 함수 돌리기
+        Target outcome에 따라 classifier별 train 함수 돌리기 (train)
         """
         for classifier_name in self.classifier.keys():
             self.train(classifier_name)
 
 
-    ## SAVE
+    ## result 결과 정리 + save
     def save_performance_result(self):
-        """ (result save)
+        """ (result)
         Target outcome에 따라 classifier별 분류 성능을 excel로 저장하는 
 
         classifier 종류:
@@ -375,7 +445,7 @@ class tree(object):
 
     ## TRAIN 결과 계산 함수
     def get_best_param(self, classifier_name: str) -> list:
-        """ (cal)
+        """ (result)
         1)perform_metric: performance (fold별 결과, 평균값), 2) best parameter 결과 
 
         Args:
@@ -395,11 +465,11 @@ class tree(object):
         
         self.save_pkl(self.get_outpath(f"best_model_fold{str(best_fold)}.pkl", classifier_name), clf)
 
-        return clf.best_params
+        return clf.best_params_
     
 
     def get_feature_importance(self, classifier_name: str) -> pd.DataFrame:
-        """ (cal)
+        """ (result)
         get mean feature importance with categorical index
         +) feature importance category
         Args:
@@ -408,6 +478,7 @@ class tree(object):
         Returns:
             feature_important_list:  feature 이름/ feature importance / feature의 종류에 따라 저장한 값 (DataFrame)
         """
+        
         ## averaging feature importance from fold : fold별 획득된 feature importance값의 평균값을 구하기
         feature_importance = self.train_result[classifier_name].feature_imporatnces
         feature_mean = np.sum(feature_importance, axis=0) / len(feature_importance)
@@ -416,9 +487,9 @@ class tree(object):
         feature_mean_nparray = np.array(feature_mean)
         feature_names = np.array(self.dataset.feature_name, dtype=object)
         feature_category= []
-        for _ in range(11): 
+        for _ in range(12): 
             feature_category.append('Demographics') 
-        for _ in range(18): 
+        for _ in range(17): 
             feature_category.append('Sleep features')
         for _ in range(27): 
             feature_category.append('HRV')  
@@ -436,7 +507,7 @@ class tree(object):
         return feature_importance_category
 
     def get_perform_metric(self, classifier_name: str) :
-        """(metric calculation)
+        """(result)
         cross-validation 결과를 저장 + 가장 성능이 좋은 fold, 평균 accuracy, sensitivity, specificity, ppv, npv, auc, fold별 각 성능값을 return하는 함수 
         +) best_fold: 가장 성능이 좋은 fold (int)
         +) roc_plot_val: roc curve plotting용 fpr, tpr값 저장
@@ -491,7 +562,7 @@ class tree(object):
         for k, v in metrics.items():
             mean_val = np.round(np.mean(v), 4)
             v.append(mean_val)
-        fold.append(mean)
+        fold.append('mean')
         
         # roc 기준 best fold 저장
         best_fold = metrics['roc'].index(max(metrics['roc']))
@@ -499,7 +570,6 @@ class tree(object):
         
         performance_result = {
             f"accuracy_{classifier_name}": metrics['accuracy'], 
-            f"fold_{classifier_name}":  fold, 
             f"roc_{classifier_name}": metrics['roc'], 
             f"se_{classifier_name}": metrics['se'], 
             f"sp_{classifier_name}": metrics['sp'], 
@@ -508,30 +578,6 @@ class tree(object):
             }
 
         return performance_result  
-
-
-    ## 추가 통계
-    def cal_delong_test(self):
-        """ (statistics)
-        calculate delong test
-        +) delong_pvalue : {clf1_clf2 : delong_pvalue} (저장 필요)
-        """
-        args = self.args
-        # delong_pvalue 저장하기
-        delong_test_result = {} #dict(str, int)
-
-        for clf_1, clf_2 in itertools.combinations(self.classifier.keys(), 2):
-            real = self.train_result[clf_1].reals[0]
-            clf_1_prob = self.train_result[clf_1].probs[0]
-            clf_2_prob = self.train_result[clf_2].probs[0]
-            delong_pvalue = self.delong_roc_test(real, clf_1_prob, clf_2_prob, sample_weight= None)
-            delong_test_result[f'{clf_1}_{clf_2}'] = delong_pvalue
-        delong_pvalue_result = pd.DataFrame(delong_test_result)
-
-        ## result save (delong pvalue result를 excel로 저장)
-        writer = pd.ExcelWriter(args.out_path + '\\delong_pvalue_result.xlsx')      
-        delong_pvalue_result.to_excel(writer)
-        writer.close()
 
 
 ## plotting  
@@ -657,21 +703,54 @@ class tree(object):
         plt.clf()
     
 
+## 추가 통계
+    def cal_delong_test(self):
+        """ (statistics)
+        calculate delong test
+        +) delong_pvalue : {clf1_clf2 : delong_pvalue} (저장 필요)
+        """
+        args = self.args
+        # delong_pvalue 저장하기
+        delong_test_result = {} #dict(str, int)
+
+        for clf_1, clf_2 in itertools.combinations(self.classifier.keys(), 2):
+            real = self.train_result[clf_1].reals[0]
+            clf_1_prob = self.train_result[clf_1].probs[0]
+            clf_2_prob = self.train_result[clf_2].probs[0]
+            delong_pvalue = self.delong_roc_test(real, clf_1_prob, clf_2_prob, sample_weight= None)
+            delong_test_result[f'{clf_1}_{clf_2}'] = delong_pvalue
+        delong_pvalue_result = pd.DataFrame(delong_test_result)
+
+        ## result save (delong pvalue result를 excel로 저장)
+        writer = pd.ExcelWriter(args.out_path + '\\delong_pvalue_result.xlsx')      
+        delong_pvalue_result.to_excel(writer)
+        writer.close()
+
 
 ## load final result    
+    def load_classifier(self):
+        for classifier_name in self.classifier.keys():
+            self.load_all_pkl(classifier_name)               
+
     def load_and_save_result(self):
         """ (save result)
         load하고 save하는 곳
         """
+        
+        # best fold + best_clf + best_dataset load
         for classifier_name in self.classifier.keys():
             best_clf, best_dataset = self.load_best_classifier_dataset_fold(classifier_name)
+        
+        # train result 전체 load
+        self.load_train_result()
 
         ## 추가 필요
-        # plotting
-        
         # calculating statistics
 
         # save metrics 
+        
+        # plotting
+        
 
     def load_best_classifier_dataset_fold(self, classifier_name: str) :
         """ (load)
@@ -699,14 +778,74 @@ class tree(object):
             #best_dataset : [pred, pred_prob, y_test.reshape(-1), pd.DataFrame(x_test, columns = self.dataset.feature_name)]
             load_dataset = pickle.load(f)
         
-        best_dataset = {}
+        best_dataset: list[list, list, list, pd.DataFrame] = {}
         best_dataset['pred'] = load_dataset[0]
         best_dataset['prob'] = load_dataset[1]
         best_dataset['real'] = load_dataset[2]
-        best_dataset['x'] = load_dataset[3]        
+        best_dataset['x'] = load_dataset[3]
+                
 
-        return best_clf, best_dataset        
+        return best_clf, best_dataset      
 
+    def load_train_result(self) :
+        """ (load)
+        저장된 train 결과 읽어오는 함수 
+
+        Args:
+            classifier_name: classifier name (str)
+        Returns: 
+            train_result: fold별 result 결과
+        """
+        with open(self.get_outpath("train_result.pkl"), 'rb') as f: 
+            self.train_result = pickle.load(f)
+
+    def load_all_pkl(self, classifier_name: str):
+        
+        train_result = MyTrainResult()
+
+        # initialize output (return값 list로 initialize)
+        pred_list, real_list, prob_list = [], [], []
+        feature_importance_list = []
+        best_param_list = []
+
+        # load dataset
+        for kfold, dataset in enumerate(self.folded_dataset):
+            x_test, y_test = (
+                dataset["test"]["x"], 
+                dataset["test"]["y"]
+                )
+            
+            with open(self.get_outpath(f"{str(kfold)}.pkl", classifier_name), 'rb') as f: 
+                gird_search_clf = pickle.load(f)
+
+            # grid search 결과 best parameter list에 저장
+            best_param_list.append(gird_search_clf.best_params_)
+            print('GridSearch 최고 점수: ', gird_search_clf.best_score_)
+            print('GridSearch 최적 파라미터: ', gird_search_clf.best_params_)
+
+            # gird searched model 중 가장 best estimator의 학습 결과 저장
+            clf = gird_search_clf.best_estimator_.steps[2][1]
+            pred_prob = clf.predict_proba(x_test)
+            pred = pred_prob.argmax(1)
+            pred_prob = pred_prob[:, 1]
+                        
+            pred_list.append(pred)
+            real_list.append(y_test.reshape(-1))
+            prob_list.append(pred_prob)
+
+            ## feature importance (logistic regression 제외 나머지 classifier의 feature importance 내장 함수 이용하여 feature importance 저장)
+            feature_importance= (
+            clf.feature_importances_ if classifier_name != 'lr' else clf.coef_[0]
+            )
+            feature_importance_list.append(feature_importance)         
+
+        train_result.preds = np.array(pred_list)
+        train_result.reals = np.array(real_list)
+        train_result.probs = np.array(prob_list)
+        train_result.feature_imporatnces = feature_importance_list
+        train_result.best_params = best_param_list
+
+        self.train_result[classifier_name] = train_result
 
 ## statistics
     def _proportion_confidence_interval(self, r, n, z):  
@@ -714,7 +853,6 @@ class tree(object):
         B = z*sqrt(z**2 + 4*r*(1 - r/n))
         C = 2*(n + z**2)
         return ((A-B)/C, (A+B)/C)
-
 
     def sensitivity_and_specificity_with_confidence_intervals(self, TP, FP, FN, TN, alpha=0.95):
         z = -ndtri((1.0-alpha)/2)
@@ -728,7 +866,6 @@ class tree(object):
         print('specificity : {} ({} {})'.format(specificity_point_estimate, specificity_confidence_interval[0], specificity_confidence_interval[1]))
         
         return sensitivity_point_estimate, specificity_point_estimate, sensitivity_confidence_interval, specificity_confidence_interval
-
 
     def ppv_and_npv_with_confidence_intervals(self, TP, FP, FN, TN, alpha=0.95):
         z = -ndtri((1.0-alpha)/2)
@@ -744,7 +881,6 @@ class tree(object):
 
         
         return ppv_estimate, npv_estimate, ppv_confidence_interval, npv_confidence_interval
-
 
     def find_optimal_cutoff(self, real, pred):
         fpr, tpr, thresholds = roc_curve(real, pred)
@@ -768,8 +904,7 @@ class tree(object):
         ppv_estimate, npv_estimate, ppv_confidence_interval, npv_confidence_interval= self.ppv_and_npv_with_confidence_intervals(TP=TP, FP=FP, FN=FN, TN=TN)
 
         return optimal_threshold, ix, sensitivity_point_estimate, specificity_point_estimate, sensitivity_confidence_interval, specificity_confidence_interval, ppv_estimate, npv_estimate, ppv_confidence_interval, npv_confidence_interval
-
-        
+      
     def compute_midrank(self, x):
         J = np.argsort(x)
         Z = x[J]
@@ -906,7 +1041,6 @@ class tree(object):
         assert len(aucs) == 1, assert_msg
         return aucs[0], delongcov
 
-
     def delong_roc_test(self, ground_truth, pred_one, pred_two, sample_weight=None):
         order, label_1_count, _ = self.compute_ground_truth_statistics(
             ground_truth,
@@ -922,7 +1056,6 @@ class tree(object):
 
         # print(aucs, delongcov)
         return self.calc_pvalue(aucs, delongcov)
-
 
     def auc_ci_Delong(self, y_true, y_scores, alpha=.95):
 
@@ -947,68 +1080,6 @@ class tree(object):
 
         return auc, auc_var, lower_upper_ci
 
-## select target subjects (데이터 전처리)        
-    def select_mortality_ahi_subject(self, total_data: pd.DataFrame):
-        """ (dataset)
-        전체 feature data를 alive, deceased로 grouping하는 함수
-
-        ahi 값이 5 이상인 data 중 아래 기준에 따라 grouping
-        1) alive: vital(생존) 값이 1 이거나 vital 값이 0이면서 censdate(사망날짜)가 365*15 초과 
-        2) deceased: vital 값이 0이면서 censdate가 365*15 이하
-        
-        Args:
-            total_data: 전체 feature data (DataFrame) 
-
-        Returns:
-            alive: 1번 조건을 만족하는 feature (DataFrame)
-            decease: 2번 조건을 만족하는 feature (DataFrame)
-        """
-
-        ## including ahi >= 5 
-        df_ahi: pd.DataFrame = total_data[total_data['ahi']>=5].reset_index(drop=True)
-        
-        ## select vital ==0 or vital ==1 subject
-        alive: pd.DataFrame = df_ahi[df_ahi['vital'] == 1 | ((df_ahi['vital'] == 0) & (df_ahi['censdate'] > 365*15))].reset_index(drop=True)
-        alive['vital'] = 0
-        deceased: pd.DataFrame = df_ahi[(df_ahi['vital'] == 0) & (df_ahi['censdate'] <= 365*15)].reset_index(drop=True)
-        deceased['vital'] = 1
-        
-        print('alive:', len(alive), '\n deceased:', len(deceased))
-
-        return alive, deceased
-
-
-    def select_cvd_ahi_subject(self, total_data: pd.DataFrame):
-        """(dataset)
-        전체 feature data를 non_cvd, any_cvd로 grouping하는 함수
-
-        ahi 값이 5 이상이면서, pre_cvd 값이 0인 data 중 아래 기준에 따라 grouping
-        1) non_cvd: any_cvd(심혈관 질환 유무) 값이 0 
-        2) any_Cvd: any_cvd 값이 0이 아님
-        
-        Args:
-            total_data: 전체 feature data (DataFrame) 
-
-        Returns:
-            non_cvd: 1번 조건을 만족하는 feature (DataFrame)
-            any_cvd: 2번 조건을 만족하는 feature (DataFrame)
-        """
-   
-        ## including ahi >= 5 
-        df_ahi: pd.DataFrame = total_data[total_data['ahi']>=5].reset_index(drop=True)
-
-        ## excluding pre-cvd 
-        df_pre_cvd: pd.DataFrame = df_ahi[df_ahi['pre_cvd']==0].reset_index(drop=True)
-
-        ## select non_cvd & any_cvd subject
-        non_cvd: pd.DataFrame = df_pre_cvd[df_pre_cvd['any_cvd']==0].reset_index(drop=True)
-
-        any_cvd: pd.DataFrame = df_pre_cvd[df_pre_cvd['any_cvd']!=0 & df_pre_cvd['cvd_date']!=0].reset_index(drop=True)
-        any_cvd[:,'any_cvd'] = 1
-
-        print('any_cvd:', len(any_cvd), '\n non_cvd:', len(non_cvd))
-        return non_cvd, any_cvd
-
 
 
 if __name__ == '__main__':
@@ -1022,6 +1093,7 @@ if __name__ == '__main__':
 
     # train and save model
     tree_shhs.classifier_train()
+    #tree_shhs.load_classifier()
     tree_shhs.save_performance_result()
 
     # 통계 + plotting (독립적으로 실행 가능)
