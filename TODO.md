@@ -1,0 +1,6 @@
+- [x] 학습된거 load해서 쓰는 부분
+- [ ] class module화 - 전체 architecture에 대해서만
+- [ ] input/output 제외한 class 모두 작성
+- [ ] data schema 정의(input / output 둘다)
+- [ ] input class(parameter / config 화)
+- [ ] output plot class
