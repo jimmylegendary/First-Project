@@ -164,7 +164,7 @@ class tree(object):
 
     ## data save 지정
     def set_outdir(self, root_dir, classifier_name):
-        """ out directory 만들기 (dataset)
+        """ out directory 만들기 (save&load)
 
         Args:
             root_dir (str): output root directory
@@ -177,7 +177,7 @@ class tree(object):
             dir_names.append(dir_name)
     
     def get_outpath(self, file_name, classifier_name =""):
-        """ 최종 output path 받아오기 (dataset)
+        """ 최종 output path 받아오기 (save&load)
 
         Args:
             file_name (str): 저장 하고자 하는 file 이름의 앞부분
@@ -187,7 +187,7 @@ class tree(object):
      
     def save_pkl(self, path, data):
         """
-        path에 data를 pkl로 저장
+        path에 data를 pkl로 저장 (save&load)
         """
         
         with open(path, 'wb') as f:
@@ -246,7 +246,6 @@ class tree(object):
             # fold별 train, test data 저장
             self.folded_dataset.append(dataset)
 
-    ## select target subjects (데이터 전처리)        
     def select_mortality_ahi_subject(self, total_data: pd.DataFrame):
         """ (dataset)
         전체 feature data를 alive, deceased로 grouping하는 함수
@@ -387,10 +386,9 @@ class tree(object):
         self.train_result[classifier_name] = train_result
         self.save_pkl(self.get_outpath("train_result.pkl"), train_result)
 
-
     def classifier_train(self):
-        """
-        Target outcome에 따라 classifier별 train 함수 돌리기 (train)
+        """ (train)
+        Target outcome에 따라 classifier별 train 함수 돌리기 
         """
         for classifier_name in self.classifier.keys():
             self.train(classifier_name)
@@ -432,7 +430,6 @@ class tree(object):
         tree_feature = clf_feature
         tree_param = pd.DataFrame(clf_param)
 
-        '''분리 고민해보기 '''
         ## result save (classifcation result, feautre importnace, hyperparmeter를 excel로 저장)
         writer = pd.ExcelWriter(
             self.get_outpath("performanceresult_featureimportance_bestparameter.xlsx")
@@ -467,7 +464,6 @@ class tree(object):
 
         return clf.best_params_
     
-
     def get_feature_importance(self, classifier_name: str) -> pd.DataFrame:
         """ (result)
         get mean feature importance with categorical index
@@ -618,7 +614,6 @@ class tree(object):
         ## plot & save bar graph of feature importance : fold의 평균 feature importance 값 plotting
         plt.savefig(self.get_outpath("feature_importance.eps", classifier_name))
         plt.close()     
-
     
     def plot_roc_curve(self, classifier_name: str):
         """(plotting)
@@ -643,8 +638,7 @@ class tree(object):
         plt.xlabel('FPR')
         plt.ylabel('TPR')
         plt.title('ROC curve')
-        plt.savefig(self.get_filename("roc_curve_figure.svg", classifier_name))
-
+        plt.savefig(self.get_outpath("roc_curve_figure.svg", classifier_name))
            
     def plot_km(self):
         """ (plotting)
@@ -680,7 +674,6 @@ class tree(object):
         plt.savefig(self.get_outpath("km_plot_10.eps"))
         plt.clf()
 
-
     def plot_cox_func(self):
         """
         Cox Proportional Hazard model의 figure plotting함 함수 
@@ -702,104 +695,20 @@ class tree(object):
         plt.savefig(self.get_outpath("cox_HR_10_3.eps"))
         plt.clf()
     
-
-## 추가 통계
-    def cal_delong_test(self):
-        """ (statistics)
-        calculate delong test
-        +) delong_pvalue : {clf1_clf2 : delong_pvalue} (저장 필요)
-        """
-        args = self.args
-        # delong_pvalue 저장하기
-        delong_test_result = {} #dict(str, int)
-
-        for clf_1, clf_2 in itertools.combinations(self.classifier.keys(), 2):
-            real = self.train_result[clf_1].reals[0]
-            clf_1_prob = self.train_result[clf_1].probs[0]
-            clf_2_prob = self.train_result[clf_2].probs[0]
-            delong_pvalue = self.delong_roc_test(real, clf_1_prob, clf_2_prob, sample_weight= None)
-            delong_test_result[f'{clf_1}_{clf_2}'] = delong_pvalue
-        delong_pvalue_result = pd.DataFrame(delong_test_result)
-
-        ## result save (delong pvalue result를 excel로 저장)
-        writer = pd.ExcelWriter(args.out_path + '\\delong_pvalue_result.xlsx')      
-        delong_pvalue_result.to_excel(writer)
-        writer.close()
-
-
+    
 ## load final result    
     def load_classifier(self):
+        """load classifier (save&load)
+        """
         for classifier_name in self.classifier.keys():
             self.load_all_pkl(classifier_name)               
 
-    def load_and_save_result(self):
-        """ (save result)
-        load하고 save하는 곳
-        """
-        
-        # best fold + best_clf + best_dataset load
-        for classifier_name in self.classifier.keys():
-            best_clf, best_dataset = self.load_best_classifier_dataset_fold(classifier_name)
-        
-        # train result 전체 load
-        self.load_train_result()
-
-        ## 추가 필요
-        # calculating statistics
-
-        # save metrics 
-        
-        # plotting
-        
-
-    def load_best_classifier_dataset_fold(self, classifier_name: str) :
-        """ (load)
-        저장된 best model pkl값을 읽어오는 함수 
-
-        Args:
-            classifier_name: classifier name (str)
-        Returns: 
-            best_clf: 성능이 가장 높은 fold의 학습된 classifier (Class)
-            best_dataset: 성능이 가장 높은 fold의 dataset (dict)
-        """
-        args = self.args
-        clf_file = glob.glob(
-            self.get_filename('best_model_fold*.pkl'))[0]
-        best_fold = int(clf_file.split('.')[0][-1])
-        
-        # save best fold
-        self.best_fold[classifier_name] = best_fold
-
-        # load best classifier 
-        with open(clf_file, 'rb') as f:
-            best_clf = pickle.load(f)
-
-        with open(self.get_outpath(f"{str(best_fold)}_dataset.pkl", classifier_name), 'rb') as f: 
-            #best_dataset : [pred, pred_prob, y_test.reshape(-1), pd.DataFrame(x_test, columns = self.dataset.feature_name)]
-            load_dataset = pickle.load(f)
-        
-        best_dataset: list[list, list, list, pd.DataFrame] = {}
-        best_dataset['pred'] = load_dataset[0]
-        best_dataset['prob'] = load_dataset[1]
-        best_dataset['real'] = load_dataset[2]
-        best_dataset['x'] = load_dataset[3]
-                
-
-        return best_clf, best_dataset      
-
-    def load_train_result(self) :
-        """ (load)
-        저장된 train 결과 읽어오는 함수 
-
-        Args:
-            classifier_name: classifier name (str)
-        Returns: 
-            train_result: fold별 result 결과
-        """
-        with open(self.get_outpath("train_result.pkl"), 'rb') as f: 
-            self.train_result = pickle.load(f)
-
     def load_all_pkl(self, classifier_name: str):
+        """저장된 모든 pkl(학습 완료된 classifier와 folded dataset) 불러오기
+
+        Args:
+            classifier_name (str): classifier name
+        """
         
         train_result = MyTrainResult()
 
@@ -847,6 +756,7 @@ class tree(object):
 
         self.train_result[classifier_name] = train_result
 
+            
 ## statistics
     def _proportion_confidence_interval(self, r, n, z):  
         A = 2*r + z**2
@@ -1025,6 +935,28 @@ class tree(object):
 
         return order, label_1_count, ordered_sample_weight
 
+    def cal_delong_test(self):
+        """ (statistics)
+        calculate delong test
+        +) delong_pvalue : {clf1_clf2 : delong_pvalue} (저장 필요)
+        """
+        args = self.args
+        # delong_pvalue 저장하기
+        delong_test_result = {} #dict(str, int)
+
+        for clf_1, clf_2 in itertools.combinations(self.classifier.keys(), 2):
+            real = self.train_result[clf_1].reals[0]
+            clf_1_prob = self.train_result[clf_1].probs[0]
+            clf_2_prob = self.train_result[clf_2].probs[0]
+            delong_pvalue = self.delong_roc_test(real, clf_1_prob, clf_2_prob, sample_weight= None)
+            delong_test_result[f'{clf_1}_{clf_2}'] = delong_pvalue
+        delong_pvalue_result = pd.DataFrame(delong_test_result)
+
+        ## result save (delong pvalue result를 excel로 저장)
+        writer = pd.ExcelWriter(args.out_path + '\\delong_pvalue_result.xlsx')      
+        delong_pvalue_result.to_excel(writer)
+        writer.close()
+
     def delong_roc_variance(self, ground_truth, predictions, sample_weight=None):
         ground_truth_stats = self.compute_ground_truth_statistics(
             ground_truth,
@@ -1102,6 +1034,4 @@ if __name__ == '__main__':
     #tree_shhs.plot_km()
     #tree_shhs.plot_cox_func()
   
-    # 결과만 뽑는 경우 (class 달라도 될듯)
-    #tree_shhs.load_and_save_result()
     
