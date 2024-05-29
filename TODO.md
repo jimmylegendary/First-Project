@@ -4,3 +4,8 @@
 - [ ] data schema 정의(input / output 둘다)
 - [ ] input class(parameter / config 화)
 - [ ] output plot class
+- [ ] uml 만들기 (현재 버전으로)
+- [ ] main 함수 performance 부분 수정
+- [ ] (postprocessing) model performance 수정
+- [ ] (postprocessing) algorithm 검토
+- [ ] (io_module) save, to pickle, from pickle 전체적으로 수정 --> 연관되어 있는 기타 함수들도 다 연관시켜서 수정
