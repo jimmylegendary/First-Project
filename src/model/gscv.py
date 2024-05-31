@@ -25,7 +25,6 @@ class GSCV:
         self.train_result = {}
         self.dataset = None
         self.io_module: IOModule = io_module
-        
     
     def train(self, classifier_name: str, model_input: ModelInput):
         """학습 모델 및 결과 데이터셋 저장 (train)
@@ -98,7 +97,6 @@ class GSCV:
             feature_imporatnces=feature_importance_list,
             best_params=best_param_list,
         )
-
     
     def test(self):
         pass

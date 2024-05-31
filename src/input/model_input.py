@@ -104,22 +104,7 @@ class ModelInput:
 
         print('any_cvd:', len(any_cvd), '\n non_cvd:', len(non_cvd))
         return non_cvd, any_cvd
-<<<<<<< HEAD
-=======
     
-    def extract_features(self, total_data: pd.DataFrame):
-        """Target outcome에 따라 grouping된 feature 값을 반환하는 함수 (dataset)
-        + grouping_data 에 concated_group 결과 저장
-        + outcome에 target outcome 저장
-        Args:
-            total_data: 전체 feature data (DataFrame)
-        """
-        group_0, group_1 = self.target_func[self.outcome](total_data)
-        concated_group = pd.concat([group_0, group_1])
-        # grouping data / outcome 저장
-        return concated_group
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
-        
     def make_dataset(self, data_path):
         """
         data path로부터 excel read 후 grouping data에 따라 x, y, feature name 저장 (MyDataset)
@@ -129,12 +114,8 @@ class ModelInput:
             data_path (str): data path
         """
         total_data = pd.read_excel(data_path)
-<<<<<<< HEAD
         group_0, group_1 = self.target_func[self.outcome](total_data)
         grouping_data = pd.concat([group_0, group_1])
-=======
-        grouping_data = self.extract_features(total_data)
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
         feature_name = grouping_data.drop(self.drop_list, axis = 1).columns.to_list() 
         x = grouping_data.drop(self.drop_list, axis = 1).to_numpy()
         y = grouping_data[f'{self.outcome}'].to_numpy()

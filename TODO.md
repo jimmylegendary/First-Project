@@ -1,0 +1,12 @@
+- [x] 학습된거 load해서 쓰는 부분
+- [ ] class module화 - 전체 architecture에 대해서만
+- [ ] input/output 제외한 class 모두 작성
+- [ ] data schema 정의(input / output 둘다)
+- [V] input class(parameter / config 화)
+- [ ] output plot class
+- [ ] uml 만들기 (현재 버전으로)
+- [V] main 함수 performance 부분 수정
+- [V] (postprocessing) model performance 수정
+- [V] (postprocessing) algorithm 검토 -> MyStatistics로 수정
+- [V] (io_module) save, to pickle, from pickle 전체적으로 수정 --> 연관되어 있는 기타 함수들도 다 연관시켜서 수정
+- [V] model performance, algorithm 부분 -> model performance, statistics로 나누어서 수정

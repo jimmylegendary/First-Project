@@ -1,5 +1,4 @@
 from output.io_module import IOModule
-<<<<<<< HEAD
 from sklearn.metrics import roc_curve, accuracy_score, auc as auc_func
 from scipy import interp
 import numpy as np
@@ -7,22 +6,12 @@ import pandas as pd
 import itertools
 from postprocessing.my_statistics import MyStatistics
 
-=======
-from sklearn.metrics import roc_curve, confusion_matrix, accuracy_score, auc as auc_func
-import numpy as np
-import pandas as pd
-from scipy import interp
-from math import sqrt
-from scipy.special import ndtri
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
-
 
 class Performance:
     def __init__(self, train_result, io_module):
         self.io_module: IOModule = io_module
         self.train_result = train_result
         self.best_fold = {}
-<<<<<<< HEAD
         self.get_performance() # self.export() ->바로 이함수 부르면?
 
     def get_delong_pvalue(args, classifier_list, train_result):
@@ -52,11 +41,6 @@ class Performance:
         clf_result, clf_feature, clf_param = self.get_metric_param_importance() 
         self.export(clf_result, clf_feature, clf_param)
 
-=======
-
-    def get_performance(self):
-        pass
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
 
     def get_best_param(self, classifier_name: str) -> list:
         """(result)
@@ -70,11 +54,8 @@ class Performance:
         ## save performance result with cross-validation : cross-validation 결과 저장
         best_fold = self.best_fold[classifier_name]
 
-<<<<<<< HEAD
         ## FIXED: load and save best model: 성능 가장 좋았던 fold 확인해서 classifier 불러오기 & best_model_ 로 따로 저장해주기
-=======
-        ## load and save best model: 성능 가장 좋았던 fold 확인해서 classifier 불러오기 & best_model_ 로 따로 저장해주기
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
+
         grid_search_clf = self.io_module.from_picklefile(
             filename=f"{str(best_fold)}.pkl", 
             classifier_name=classifier_name
@@ -87,7 +68,6 @@ class Performance:
         )
 
         return grid_search_clf.best_params_
-<<<<<<< HEAD
     
     def get_feature_importance(self, classifier_name: str) -> pd.DataFrame:
         """ (result)
@@ -125,9 +105,6 @@ class Performance:
 
         return feature_importance_category
     
-=======
-
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
     def get_perform_metric(self, classifier_name: str):
         """(result)
         cross-validation 결과를 저장 + 가장 성능이 좋은 fold, 평균 accuracy, sensitivity, specificity, ppv, npv, auc, fold별 각 성능값을 return하는 함수
@@ -156,11 +133,7 @@ class Performance:
             fpr, tpr, _ = roc_curve(real[k], prob[k], pos_label=1)
             tprs.append(interp(mean_fpr, fpr, tpr))
             auc = auc_func(fpr, tpr)
-<<<<<<< HEAD
             _, _, se, sp, _, _, ppv, npv, _, _ = MyStatistics.find_optimal_cutoff(real[k], prob[k])
-=======
-            _, _, se, sp, _, _, ppv, npv, _, _ = self.find_optimal_cutoff(real[k], prob[k])
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
 
             metrics["accuracy"].append(accuracy)
             metrics["se"].append(se)
@@ -196,113 +169,8 @@ class Performance:
 
         return performance_result
 
-<<<<<<< HEAD
     def get_metric_param_importance(self) -> tuple(dict, pd.DataFrame, list):
-=======
-    def find_optimal_cutoff(self, real, pred):
-        fpr, tpr, thresholds = roc_curve(real, pred)
 
-        J = tpr - fpr
-        ix = np.argmax(J)
-        optimal_threshold = thresholds[ix]
-
-        print(
-            "Best Threshold=%f, sensitivity = %.3f, specificity = %.3f, J=%.3f"
-            % (optimal_threshold, tpr[ix], 1 - fpr[ix], J[ix])
-        )
-
-        temp = []
-        for t in list(pred):
-            if t >= optimal_threshold:
-                temp.append(1)
-            else:
-                temp.append(0)
-
-        TN, FP, FN, TP = confusion_matrix(real, temp).ravel()
-
-        (
-            sensitivity_point_estimate,
-            specificity_point_estimate,
-            sensitivity_confidence_interval,
-            specificity_confidence_interval,
-        ) = self.sensitivity_and_specificity_with_confidence_intervals(TP=TP, FP=FP, FN=FN, TN=TN)
-        ppv_estimate, npv_estimate, ppv_confidence_interval, npv_confidence_interval = (
-            self.ppv_and_npv_with_confidence_intervals(TP=TP, FP=FP, FN=FN, TN=TN)
-        )
-
-        return (
-            optimal_threshold,
-            ix,
-            sensitivity_point_estimate,
-            specificity_point_estimate,
-            sensitivity_confidence_interval,
-            specificity_confidence_interval,
-            ppv_estimate,
-            npv_estimate,
-            ppv_confidence_interval,
-            npv_confidence_interval,
-        )
-
-    def _proportion_confidence_interval(self, r, n, z):
-        A = 2 * r + z**2
-        B = z * sqrt(z**2 + 4 * r * (1 - r / n))
-        C = 2 * (n + z**2)
-        return ((A - B) / C, (A + B) / C)
-
-    def ppv_and_npv_with_confidence_intervals(self, TP, FP, FN, TN, alpha=0.95):
-        z = -ndtri((1.0 - alpha) / 2)
-
-        ppv_estimate = TP / (TP + FP)
-        ppv_confidence_interval = self._proportion_confidence_interval(TP, TP + FP, z)
-
-        npv_estimate = TN / (TN + FN)
-        npv_confidence_interval = self._proportion_confidence_interval(TN, TN + FN, z)
-
-        print(
-            "ppv : {} ({} {})".format(
-                ppv_estimate, ppv_confidence_interval[0], ppv_confidence_interval[1]
-            )
-        )
-        print(
-            "npv : {} ({} {})".format(
-                npv_estimate, npv_confidence_interval[0], npv_confidence_interval[1]
-            )
-        )
-
-        return ppv_estimate, npv_estimate, ppv_confidence_interval, npv_confidence_interval
-
-    def sensitivity_and_specificity_with_confidence_intervals(self, TP, FP, FN, TN, alpha=0.95):
-        z = -ndtri((1.0 - alpha) / 2)
-
-        sensitivity_point_estimate = TP / (TP + FN)
-        sensitivity_confidence_interval = self._proportion_confidence_interval(TP, TP + FN, z)
-
-        specificity_point_estimate = TN / (TN + FP)
-        specificity_confidence_interval = self._proportion_confidence_interval(TN, TN + FP, z)
-        print(
-            "sensitivity : {} ({} {})".format(
-                sensitivity_point_estimate,
-                sensitivity_confidence_interval[0],
-                sensitivity_confidence_interval[1],
-            )
-        )
-        print(
-            "specificity : {} ({} {})".format(
-                specificity_point_estimate,
-                specificity_confidence_interval[0],
-                specificity_confidence_interval[1],
-            )
-        )
-
-        return (
-            sensitivity_point_estimate,
-            specificity_point_estimate,
-            sensitivity_confidence_interval,
-            specificity_confidence_interval,
-        )
-
-    def save_performance_result(self):
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
         """(result)
         Target outcome에 따라 classifier별 분류 성능을 excel로 저장하는
         classifier 종류:
@@ -330,24 +198,19 @@ class Performance:
             clf_feature = pd.concat([clf_feature, feature], axis=1)
             clf_param.append(best_param)
 
-<<<<<<< HEAD
         # FIXED: result 값 return
 
         return clf_result, clf_feature, clf_param
 
     def export(self, clf_result, clf_feature, clf_param):
         #! FIXED: io_module의 to_excel과 add_excel_sheetd을 활용해서 아래 내용 수정
-=======
-    def export(self, clf_result, clf_feature, clf_param):
-        #! TODO io_module의 to_excel과 add_excel_sheetd을 활용해서 아래 내용 수정하기
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
+
 
         ## dict to DataFrame (excel저장을 위해 dataframe으로 변경)
         tree_result = pd.DataFrame(clf_result)
         tree_feature = clf_feature
         tree_param = pd.DataFrame(clf_param)
 
-<<<<<<< HEAD
         ## FIXED: result save (classifcation result, feautre importnace, hyperparmeter를 excel로 저장) ->writer.close() 필요하지 않은지?
         IOModule.to_excelfile("performanceresult_featureimportance_bestparameter.xlsx", tree_result)
         IOModule.add_excel_sheet(
@@ -360,18 +223,12 @@ class Performance:
             data= tree_param)
         
         ''' 이전 작성본
-=======
-        ## result save (classifcation result, feautre importnace, hyperparmeter를 excel로 저장)
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
+
         writer = pd.ExcelWriter(
             self.get_outpath("performanceresult_featureimportance_bestparameter.xlsx")
         )
         tree_result.to_excel(writer, sheet_name=f"{self.outcome}_result")
         tree_feature.to_excel(writer, sheet_name=f"{self.outcome}_feature")
         tree_param.to_excel(writer, sheet_name=f"{self.outcome}_param")
-<<<<<<< HEAD
         writer.close()
         '''
-=======
-        writer.close()
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401

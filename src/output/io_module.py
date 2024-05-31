@@ -19,23 +19,13 @@ class IOModule:
             root_dir (str): output root directory
             classifier_list (str): classifier name (e.g. xgboost, lgbm, catboost)
         """
-<<<<<<< HEAD
         for clf_name in classifier_list:
             dir_name = os.path.join(root_dir, clf_name)
             os.makedirs(dir_name, exist_ok=True)
     
     #!TODO export된 filename, file을 type별? 관리    
     # FIXED: to_excel 중복 피하기 위해 to_excelfile로 변경 +classifier_name 추가 + pd.DataFrame 꼭 선언 필요? pd.DataFrame() 이부분은 왜?
-=======
-        dir_names = []
-        for clf_name in classifier_list:
-            dir_name = os.path.join(root_dir, clf_name)
-            os.makedirs(dir_name, exist_ok=True)
-            dir_names.append(dir_name)
-    
-    #!TODO export된 filename, file을 type별? 관리    
 
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
     def from_picklefile(self, filename, classifier_name=""):
         out_path = self.get_outpath(filename, classifier_name)
         return joblib.load(out_path)
@@ -43,11 +33,7 @@ class IOModule:
     def to_picklefile(self, filename, data, classifier_name=""):  
         out_path = self.get_outpath(filename, classifier_name)
         joblib.dump(data, out_path)
-<<<<<<< HEAD
-    
-=======
 
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
     def to_excelfile(self, filename, dataframe: pd.DataFrame = pd.DataFrame(), classifier_name=""):
         out_path = self.get_outpath(filename, classifier_name)
         writer = pd.ExcelWriter(out_path)
@@ -56,15 +42,9 @@ class IOModule:
         #!TODO excel writer file name별로 저장 수정하기
         self.excel_writers[filename] = writer
 
-<<<<<<< HEAD
     def add_excel_sheet(self, excel_filename, sheet_name, data: pd.DataFrame):
         writer = self.excel_writers[excel_filename]
         data.to_excel(writer, sheet_name)
-=======
-    def add_excel_sheet(self, excel_filename, sheet_name, dataframe: pd.DataFrame):
-        writer = self.excel_writers[excel_filename]
-        dataframe.to_excel(writer, sheet_name)
->>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
 
     def get_outpath(self, file_name, classifier_name=""):
         """최종 output path 받아오기 (save&load)
