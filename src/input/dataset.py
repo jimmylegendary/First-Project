@@ -26,4 +26,3 @@ class MyDataset:
             }
             # fold별 train, test data 저장
             self.folded_dataset.append(dataset)
-        

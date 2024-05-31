@@ -2,7 +2,6 @@ import argparse
 from input.model_input import ModelInput
 from model.gscv import GSCV
 from output.io_module import IOModule
-from postprocessing.my_statistics import MyStatistics
 from postprocessing.model_performance import Performance
 
 def get_args():
@@ -23,13 +22,14 @@ if __name__ == "__main__":
     args = get_args()
     model_input = ModelInput(args)
     model_input.make_dataset(args.data_path)
+    classifier_list = model_input.classifier.keys()
     
-    io_module = IOModule(root_outdir="./result", classifier_list=model_input.classifier.keys())
+    io_module = IOModule(root_outdir="./result", classifier_list=classifier_list)
     model = GSCV(io_module)
 
-    for classifier_name in model_input.classifier.keys():
+    for classifier_name in classifier_list:
         model.train(classifier_name, model_input)
-        Performance.get_delong_pvalue(args, model_input.classifier.keys(), model.train_result)
+        Performance.get_delong_pvalue(args, classifier_list, model.train_result)
 
     Performance(train_result=model.train_result, io_module=io_module)
     
