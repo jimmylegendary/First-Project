@@ -1,5 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="n4hsIXVrt1B-6BEfhKFh" name="페이지-1">
+<<<<<<< HEAD
         <mxGraphModel dx="3871" dy="1431" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
@@ -13,6 +14,12 @@
                 <mxCell id="73" value="" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#949494;" vertex="1" parent="1">
                     <mxGeometry x="164" y="1275" width="486" height="475" as="geometry"/>
                 </mxCell>
+=======
+        <mxGraphModel dx="1638" dy="846" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+>>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
                 <mxCell id="2" value="Main flow" style="rounded=0;whiteSpace=wrap;html=1;labelPosition=center;verticalLabelPosition=top;align=center;verticalAlign=bottom;" parent="1" vertex="1">
                     <mxGeometry x="-50" y="560" width="1200" height="305" as="geometry"/>
                 </mxCell>
@@ -124,6 +131,7 @@
                 <mxCell id="38" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" source="37" target="23" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
+<<<<<<< HEAD
                 <mxCell id="41" value="" style="edgeStyle=none;html=1;" edge="1" parent="1" source="39" target="40">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
@@ -358,6 +366,8 @@
                 <mxCell id="154" value="get_feature_importance()" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="153">
                     <mxGeometry width="140" height="40" as="geometry"/>
                 </mxCell>
+=======
+>>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
             </root>
         </mxGraphModel>
     </diagram>

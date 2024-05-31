@@ -2,13 +2,21 @@ import argparse
 from input.model_input import ModelInput
 from model.gscv import GSCV
 from output.io_module import IOModule
+<<<<<<< HEAD
 from postprocessing.my_statistics import MyStatistics
+=======
+from postprocessing.algorithm import cal_delong_test
+>>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
 from postprocessing.model_performance import Performance
 
 def get_args():
     """인자값들 저장해두는 Namespace"""
     parser = argparse.ArgumentParser()
+<<<<<<< HEAD
     parser.add_argument("--outcome", default="vital", type=str)  # required=True, choices = ['vital','any_cvd']
+=======
+    parser.add_argument("--target", default="vital", type=str)  # required=True, choices = ['vital','any_cvd']
+>>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
     parser.add_argument("--data_path", default="dataset\\data.xlsx", type=str)
     parser.add_argument("--out_path", default="output\\15", type=str)
     parser.add_argument("--plot_feature_path", default="dataset\\plot_data.xlsx", type=str)
@@ -29,7 +37,11 @@ if __name__ == "__main__":
 
     for classifier_name in model_input.classifier.keys():
         model.train(classifier_name, model_input)
+<<<<<<< HEAD
         Performance.get_delong_pvalue(args, model_input.classifier.keys(), model.train_result)
+=======
+        cal_delong_test(args, model_input.classifier.keys(), model.train_result)
+>>>>>>> a0fc390776d4bc9cba664725f6f980dea1412401
 
     Performance(train_result=model.train_result, io_module=io_module)
     
