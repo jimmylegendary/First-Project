@@ -1,63 +1,8 @@
-import os
-import glob
-import numpy as np
-import pandas as pd
-import pickle
-import matplotlib.pyplot as plt
-import argparse
-from statistics import mean
-import itertools
+## plotting
+class Visualize:
+    def __init__(self):
+        pass
 
-from catboost import CatBoostClassifier as catb
-from lightgbm import LGBMClassifier as lgb
-from xgboost import XGBClassifier as xgb
-from sklearn.linear_model import LogisticRegression as lr
-from sklearn.ensemble import RandomForestClassifier as rf
-from sklearn.preprocessing import StandardScaler
-
-import seaborn as sns
-
-from scipy import interp
-import scipy.stats
-from sklearn.metrics import roc_curve, confusion_matrix, accuracy_score, auc as auc_func
-
-from sklearn.model_selection import StratifiedKFold, GridSearchCV
-from sklearn.decomposition import PCA
-
-from math import sqrt
-from scipy.special import ndtri
-
-from imblearn.over_sampling import SMOTE
-
-from imblearn.pipeline import make_pipeline
-from lifelines import KaplanMeierFitter as KM
-from lifelines import CoxPHFitter as CPH
-from lifelines.statistics import logrank_test
-
-
-class tree(object):
-    def __init__(self, args):
-        self.args = args
-        self.outcome = args.target
-
-        self.dataset = MyDataset  # 선언이 안됨
-
-        self.target_func = {
-            "vital": self.select_mortality_ahi_subject,
-            "any_cvd": self.select_cvd_ahi_subject,
-        }
-
-        self.classifier = {"xgb": xgb(), "lgb": lgb(), "catb": catb(), "rf": rf(), "lr": lr()}
-
-        self.best_fold = {"xgb": int, "lgb": int, "catb": int, "rf": int, "lr": int}
-
-        self.feature_importance_cat = {}
-
-        self.train_result: dict[str, MyTrainResult] = {}
-        self.root_outdir = os.path.join(args.out_path, self.outcome)
-        self.set_outdir(root_dir=self.root_outdir, classifier_name=self.classifier.keys())
-
-    ## plotting
     def plot_classifier(self):
         """(plotting)
         classifier별로 plotting하고 싶은 함수 부르는 곳
@@ -180,10 +125,3 @@ class tree(object):
         ## Create an estimate
         plt.savefig(self.get_outpath("cox_HR_10_3.eps"))
         plt.clf()
-
-
-if __name__ == "__main__":
-    tree_shhs = tree(args)
-
-    # tree_shhs.load_classifier()
-    tree_shhs.save_performance_result()
