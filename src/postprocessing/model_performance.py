@@ -4,17 +4,21 @@ from scipy import interp
 import numpy as np
 import pandas as pd
 import itertools
-from postprocessing.my_statistics import MyStatistics
+import postprocessing.my_statistics as mystatistics
 
 
 class Performance:
-    def __init__(self, train_result, io_module):
+    def __init__(self,args, train_model, io_module, classifier_list):
         self.io_module: IOModule = io_module
-        self.train_result = train_result
+        self.train_result = train_model.train_result
+        self.dataset = train_model.dataset
         self.best_fold = {}
+        self.outcome = args.outcome
+        self.classifier_list = classifier_list
+        
         self.get_performance() # self.export() ->바로 이함수 부르면?
 
-    def get_delong_pvalue(args, classifier_list, train_result):
+    def get_delong_pvalue(self, classifier_list, train_result):
         """calculate delong test
         +) delong_pvalue : {clf1_clf2 : delong_pvalue} (저장 필요)
         """
@@ -25,12 +29,12 @@ class Performance:
             real = train_result[clf_1].reals[0]
             clf_1_prob = train_result[clf_1].probs[0]
             clf_2_prob = train_result[clf_2].probs[0]
-            delong_pvalue = MyStatistics.delong_roc_test(real, clf_1_prob, clf_2_prob, sample_weight=None)
+            delong_pvalue = mystatistics.delong_roc_test(ground_truth=real, pred_one=clf_1_prob, pred_two=clf_2_prob, sample_weight=None)
             delong_test_result[f"{clf_1}_{clf_2}"] = delong_pvalue
         delong_pvalue_result = pd.DataFrame(delong_test_result)
 
         #FIXED!: result save (delong pvalue result를 excel로 저장)
-        IOModule.to_excelfile("\\delong_pvalue_reuslt.xlsx", delong_pvalue_result)
+        self.io_module.to_excelfile("\delong_pvalue_reuslt.xlsx", delong_pvalue_result)
         '''
         writer = pd.ExcelWriter(args.out_path + "\\delong_pvalue_result.xlsx")
         delong_pvalue_result.to_excel(writer)
@@ -133,7 +137,7 @@ class Performance:
             fpr, tpr, _ = roc_curve(real[k], prob[k], pos_label=1)
             tprs.append(interp(mean_fpr, fpr, tpr))
             auc = auc_func(fpr, tpr)
-            _, _, se, sp, _, _, ppv, npv, _, _ = MyStatistics.find_optimal_cutoff(real[k], prob[k])
+            _, _, se, sp, _, _, ppv, npv, _, _ = mystatistics.find_optimal_cutoff(real[k], prob[k])
 
             metrics["accuracy"].append(accuracy)
             metrics["se"].append(se)
@@ -169,7 +173,7 @@ class Performance:
 
         return performance_result
 
-    def get_metric_param_importance(self) -> tuple(dict, pd.DataFrame, list):
+    def get_metric_param_importance(self) -> tuple[dict, pd.DataFrame, list]:
 
         """(result)
         Target outcome에 따라 classifier별 분류 성능을 excel로 저장하는
@@ -189,7 +193,7 @@ class Performance:
         clf_feature = pd.DataFrame()
         clf_param = []
 
-        for classifier_name in self.classifier.keys():
+        for classifier_name in self.classifier_list.keys():
             result = self.get_perform_metric(classifier_name)
             best_param = self.get_best_param(classifier_name)
             feature = self.get_feature_importance(classifier_name)
@@ -212,12 +216,12 @@ class Performance:
         tree_param = pd.DataFrame(clf_param)
 
         ## FIXED: result save (classifcation result, feautre importnace, hyperparmeter를 excel로 저장) ->writer.close() 필요하지 않은지?
-        IOModule.to_excelfile("performanceresult_featureimportance_bestparameter.xlsx", tree_result)
-        IOModule.add_excel_sheet(
+        self.io_module.to_excelfile("performanceresult_featureimportance_bestparameter.xlsx", tree_result)
+        self.io_module.add_excel_sheet(
             "performanceresult_featureimportance_bestparameter.xlsx", 
             sheet_name=f"{self.outcome}_result",
             data= tree_feature)
-        IOModule.add_excel_sheet(
+        self.io_module.add_excel_sheet(
             "performanceresult_featureimportance_bestparameter.xlsx", 
             sheet_name=f"{self.outcome}_param",
             data= tree_param)

@@ -25,13 +25,13 @@ if __name__ == "__main__":
     classifier_list = model_input.classifier.keys()
     
     io_module = IOModule(root_outdir="./result", classifier_list=classifier_list)
-    model = GSCV(io_module)
-
+    model = GSCV(io_module, model_input)
+    
     for classifier_name in classifier_list:
         model.train(classifier_name, model_input)
-        Performance.get_delong_pvalue(args, classifier_list, model.train_result)
-
-    Performance(train_result=model.train_result, io_module=io_module)
+    
+    performance = Performance(args, train_model=model, io_module=io_module, classifier_list=classifier_list)
+    performance.get_delong_pvalue(classifier_list=classifier_list, train_result=model.train_result)
     
     
     #tree_shhs.save_performance_result()

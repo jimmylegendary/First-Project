@@ -18,12 +18,11 @@ class MyTrainResult:
         self.best_params = best_params 
         
 class GSCV:
-    def __init__(self, io_module):
+    def __init__(self, io_module, model_input):
         
-        self.hyperparameters = None
-        self.classifier = None
+        self.classifier = model_input.classifier
         self.train_result = {}
-        self.dataset = None
+        self.dataset = model_input.dataset
         self.io_module: IOModule = io_module
     
     def train(self, classifier_name: str, model_input: ModelInput):
@@ -41,7 +40,7 @@ class GSCV:
         
         ## kfold prediction (5 stratified fold cross-validation 수행 + smote를 통해 data augmentation = make_pipeline 함수 사용)
         smote = SMOTE(random_state=37)
-        smp_pipeline = make_pipeline(StandardScaler(), smote, model_input.classifier)
+        smp_pipeline = make_pipeline(StandardScaler(), smote, self.classifier)
         
         # prepare_dataset에서 저장한 train, test dataset 불러오기
         for kfold, dataset in enumerate(model_input.dataset.folded_dataset):

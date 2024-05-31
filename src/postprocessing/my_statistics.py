@@ -3,10 +3,13 @@ import pandas as pd
 import scipy.stats
 from math import sqrt
 from scipy.special import ndtri
-from sklearn.metrics import roc_curve, confusion_matrix, accuracy_score, auc as auc_func
+from sklearn.metrics import roc_curve, confusion_matrix
+import itertools
+
 
 
 # Class 사용하는 version, !FIXED: 필요하다면 class로, 추가적인 정리 필요함
+'''
 class MyStatistics:
     def __init__(self):
         # INIT할게 없을 수 잇을지 -> 다른 방식으로 표현? (class 말고 그냥 function들)
@@ -384,4 +387,105 @@ def compute_midrank_weight(x, sample_weight):
     T2 = np.empty(N, dtype=np.float32)
     T2[J] = T
     return T2
-'''
+
+def find_optimal_cutoff(real, pred):
+    fpr, tpr, thresholds = roc_curve(real, pred)
+
+    J = tpr - fpr
+    ix = np.argmax(J)
+    optimal_threshold = thresholds[ix]
+
+    print(
+        "Best Threshold=%f, sensitivity = %.3f, specificity = %.3f, J=%.3f"
+        % (optimal_threshold, tpr[ix], 1 - fpr[ix], J[ix])
+    )
+
+    temp = []
+    for t in list(pred):
+        if t >= optimal_threshold:
+            temp.append(1)
+        else:
+            temp.append(0)
+
+    TN, FP, FN, TP = confusion_matrix(real, temp).ravel()
+
+    (
+        sensitivity_point_estimate,
+        specificity_point_estimate,
+        sensitivity_confidence_interval,
+        specificity_confidence_interval,
+    ) = sensitivity_and_specificity_with_confidence_intervals(TP=TP, FP=FP, FN=FN, TN=TN)
+    ppv_estimate, npv_estimate, ppv_confidence_interval, npv_confidence_interval = (
+        ppv_and_npv_with_confidence_intervals(TP=TP, FP=FP, FN=FN, TN=TN)
+    )
+
+    return (
+        optimal_threshold,
+        ix,
+        sensitivity_point_estimate,
+        specificity_point_estimate,
+        sensitivity_confidence_interval,
+        specificity_confidence_interval,
+        ppv_estimate,
+        npv_estimate,
+        ppv_confidence_interval,
+        npv_confidence_interval,
+    )
+
+def _proportion_confidence_interval( r, n, z):
+    A = 2 * r + z**2
+    B = z * sqrt(z**2 + 4 * r * (1 - r / n))
+    C = 2 * (n + z**2)
+    return ((A - B) / C, (A + B) / C)
+
+def ppv_and_npv_with_confidence_intervals( TP, FP, FN, TN, alpha=0.95):
+    z = -ndtri((1.0 - alpha) / 2)
+
+    ppv_estimate = TP / (TP + FP)
+    ppv_confidence_interval = _proportion_confidence_interval(TP, TP + FP, z)
+
+    npv_estimate = TN / (TN + FN)
+    npv_confidence_interval = _proportion_confidence_interval(TN, TN + FN, z)
+
+    print(
+        "ppv : {} ({} {})".format(
+            ppv_estimate, ppv_confidence_interval[0], ppv_confidence_interval[1]
+        )
+    )
+    print(
+        "npv : {} ({} {})".format(
+            npv_estimate, npv_confidence_interval[0], npv_confidence_interval[1]
+        )
+    )
+
+    return ppv_estimate, npv_estimate, ppv_confidence_interval, npv_confidence_interval
+
+def sensitivity_and_specificity_with_confidence_intervals( TP, FP, FN, TN, alpha=0.95):
+    z = -ndtri((1.0 - alpha) / 2)
+
+    sensitivity_point_estimate = TP / (TP + FN)
+    sensitivity_confidence_interval = _proportion_confidence_interval(TP, TP + FN, z)
+
+    specificity_point_estimate = TN / (TN + FP)
+    specificity_confidence_interval = _proportion_confidence_interval(TN, TN + FP, z)
+    print(
+        "sensitivity : {} ({} {})".format(
+            sensitivity_point_estimate,
+            sensitivity_confidence_interval[0],
+            sensitivity_confidence_interval[1],
+        )
+    )
+    print(
+        "specificity : {} ({} {})".format(
+            specificity_point_estimate,
+            specificity_confidence_interval[0],
+            specificity_confidence_interval[1],
+        )
+    )
+
+    return (
+        sensitivity_point_estimate,
+        specificity_point_estimate,
+        sensitivity_confidence_interval,
+        specificity_confidence_interval,
+    )

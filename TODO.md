@@ -3,8 +3,7 @@
 - [ ] input/output 제외한 class 모두 작성
 - [ ] data schema 정의(input / output 둘다)
 - [V] input class(parameter / config 화)
-- [ ] output plot class
-- [ ] uml 만들기 (현재 버전으로)
+- [V] uml 만들기 (현재 버전으로)
 - [V] main 함수 performance 부분 수정
 - [V] (postprocessing) model performance 수정
 - [V] (postprocessing) algorithm 검토 -> MyStatistics로 수정
