@@ -1,0 +1,81 @@
+{
+  "xgb": {
+    "xgbclassifier__max_depth": [
+      3, 5, 7, 9
+    ],
+    "xgbclassifier__n_estimators": [
+      100, 200, 300, 400, 500
+    ],
+    "xgbclassifier__learning_rate": [
+      0.01
+    ],
+    "xgbclassifier__min_child_weight": [
+      1, 3, 5
+    ],
+    "xgbclassifier__objective": [
+      "binary:logistic"
+    ],
+    "xgbclassifier__use_label_encoder": [
+      "False"
+    ],
+    "xgbclassifier__random_state": [22]
+  },
+  "lgb": {
+    "lgbmclassifier__max_depth": [
+      2, 4, 6, 8
+    ],
+    "lgbmclassifier__n_estimators": [
+      100, 200, 300, 400, 500
+    ],
+    "lgbmclassifier__learning_rate": [
+      0.01
+    ],
+    "lgbmclassifier__min_data_in_leaf": [
+      10, 20, 30, 40, 50
+    ],
+    "lgbmclassifier__objective": [
+      "binary"
+    ],
+    "lgbmclassifier__random_state": [22]
+  },
+  "catb": {
+    "catboostclassifier__iterations": [
+      100, 200, 300, 400, 500
+    ],
+    "catboostclassifier__depth": [
+      3, 5, 7, 9
+    ],
+    "catboostclassifier__learning_rate": [
+      0.01
+    ],
+    "catboostclassifier__l2_leaf_reg": [
+      3, 5, 7
+    ],
+    "catboostclassifier__loss_function": [
+      "Logloss"
+    ],
+    "catboostclassifier__random_state": [
+      22
+    ]
+  },
+  "rf": {
+    "randomforestclassifier__max_depth": [
+      2, 4, 6, 8
+    ],
+    "randomforestclassifier__min_samples_leaf": [
+      1, 5, 10, 20
+    ],
+    "randomforestclassifier__n_estimators": [
+      100, 200, 300, 400, 500
+    ],
+    "randomforestclassifier__random_state": [
+      22
+    ]
+  },
+  "lr": {
+    "logisticregression__C": [0.0011],
+    "logisticregression__random_state": [
+      22
+    ]
+  }
+}
